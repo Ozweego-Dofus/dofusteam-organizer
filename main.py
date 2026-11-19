@@ -27,9 +27,9 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.01"
+VERSION  = "V3.02"
 
-CLASSES = ["Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
+CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
            "Sadida","Sram","Steamer","Xelor","Zobal"]
 
@@ -1055,12 +1055,68 @@ class _InstantTooltipStyle(QProxyStyle):
         return super().styleHint(hint, option, widget, returnData)
 
 
+class _BarFrame(QWidget):
+    """Fond de la barre flottante, dessiné à la main (antialiasing propre, contrairement à un border-radius QSS
+    sur fenêtre translucide) : dégradé sombre, filet 1px discret et liseré citron sur le bord de départ."""
+    def __init__(self, parent=None, radius=16):
+        super().__init__(parent); self.radius = radius; self.vertical = False
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
+    def paintEvent(self, _):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        rad = min(self.radius, r.height() / 2, r.width() / 2)
+        path = QPainterPath(); path.addRoundedRect(r, rad, rad)
+        g = QLinearGradient(r.topLeft(), r.bottomLeft())
+        g.setColorAt(0, QColor("#1a2029")); g.setColorAt(1, QColor("#0f141b"))
+        p.fillPath(path, g)
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1)); p.drawPath(path)
+        # liseré citron : fin trait lumineux le long du bord haut (ou gauche en vertical)
+        inset = rad + 4
+        if self.vertical:
+            a, b = QPointF(r.left() + 0.5, r.top() + inset), QPointF(r.left() + 0.5, r.bottom() - inset)
+        else:
+            a, b = QPointF(r.left() + inset, r.top() + 0.5), QPointF(r.right() - inset, r.top() + 0.5)
+        lg = QLinearGradient(a, b)
+        lg.setColorAt(0, QColor(200, 241, 53, 0)); lg.setColorAt(0.5, QColor(200, 241, 53, 120)); lg.setColorAt(1, QColor(200, 241, 53, 0))
+        p.setPen(QPen(QBrush(lg), 1)); p.drawLine(a, b)
+
+
+class _Grip(QWidget):
+    """Poignée de déplacement : 6 points, orientée selon le sens de la barre."""
+    def __init__(self):
+        super().__init__(); self._v = False
+        self.setCursor(Qt.CursorShape.SizeAllCursor); self.set_vertical(False)
+
+    def set_vertical(self, v):
+        self._v = v; self.setFixedSize(*((24, 10) if v else (10, 24))); self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(122, 125, 138, 190))
+        cols, rows = (3, 2) if self._v else (2, 3)
+        x0 = (self.width() - (cols - 1) * 5) / 2; y0 = (self.height() - (rows - 1) * 5) / 2
+        for i in range(cols):
+            for j in range(rows):
+                p.drawEllipse(QPointF(x0 + i * 5, y0 + j * 5), 1.2, 1.2)
+
+
+class _Sep(QWidget):
+    """Séparateur fin ; devient horizontal quand la barre est verticale."""
+    def __init__(self):
+        super().__init__(); self.set_vertical(False)
+
+    def set_vertical(self, v):
+        self.setFixedSize(*((22, 1) if v else (1, 22))); self.update()
+
+    def paintEvent(self, _):
+        QPainter(self).fillRect(self.rect(), QColor(255, 255, 255, 26))
+
+
 class MiniToolbar(QWidget):
-    """Barre flottante — inspirée du style overlay de DoFrame (capture fournie par
-    l'utilisateur) : poignée + logo + libellé de mode à gauche, bande d'avatars des
-    personnages détectés au centre (pastille de statut), actions rapides à droite
-    (chef/havre-sac/zaap/plus), puis réduire/fermer. « Réduire » replie la barre en
-    une petite pastille (self.nub) — même geste que le second aperçu de la capture."""
+    """Barre flottante : poignée + logo, bande d'avatars des personnages détectés (anneau citron sur le perso actif,
+    pastille de statut), actions rapides (havre-sac, zaap, potions, inventaire), puis pivoter / réduire / fermer.
+    Horizontale ou verticale (réglage mémorisé : mini_toolbar_vertical). « Réduire » replie la barre en pastille (self.nub)."""
 
     def __init__(self,config,logic,on_show,on_navigate=None):
         super().__init__(None,Qt.WindowType.Tool|Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint)
@@ -1069,42 +1125,39 @@ class MiniToolbar(QWidget):
         self._instant_tooltip=_InstantTooltipStyle()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        def mkb(icon,tip,color=BG3,ck=False,icon_file=None,icon_pixmap=None,size=(32,30),icon_size=18):
-            b=QPushButton("" if (icon_file or icon_pixmap) else icon); b.setFixedSize(*size); b.setToolTip(tip); b.setCheckable(ck)
-            b.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:6px;font-size:14px;}}QPushButton:checked{{background:{ACC};color:#080b10;}}")
+        self._vertical=bool(config.get("mini_toolbar_vertical",False))
+        M=self._MARGIN
+
+        def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15):
+            b=QPushButton("" if icon_file else icon); b.setFixedSize(*size); b.setToolTip(tip)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(f"QPushButton{{background:transparent;color:{MUT};border:none;border-radius:9px;font-size:{text_size}px;font-weight:700;}}"
+                            f"QPushButton:hover{{background:{hover};color:{TEXT};}}QPushButton:pressed{{background:rgba(255,255,255,0.15);}}")
             if icon_file:
                 ic=load_icon(icon_file,icon_size)
                 if ic: b.setIcon(ic); b.setIconSize(QSize(icon_size,icon_size))
                 else: b.setText(icon)  # PNG absent du skin/ → fallback emoji
-            elif icon_pixmap is not None:
-                b.setIcon(QIcon(icon_pixmap)); b.setIconSize(icon_pixmap.size())
             return b
+        self._seps=[]
         def sep():
-            s=QFrame(); s.setFrameShape(QFrame.Shape.VLine)
-            s.setStyleSheet("color:rgba(255,255,255,0.1);"); s.setFixedHeight(24); s.setFixedWidth(1)
-            return s
+            s=_Sep(); self._seps.append(s); return s
+
+        def shadow():
+            fx=QGraphicsDropShadowEffect(); fx.setBlurRadius(20); fx.setOffset(0,4); fx.setColor(QColor(0,0,0,150)); return fx
 
         # ── Barre complète ──────────────────────────────────────────────
-        bar=QWidget(self); bar.setObjectName("b")
-        bar.setStyleSheet(
-            f"QWidget#b{{"
-            f"background:{BG};border:1.5px solid rgba(255,158,60,0.55);border-radius:12px;"
-            f"}}"
-        )
-        lay=QHBoxLayout(bar); lay.setContentsMargins(10,6,8,6); lay.setSpacing(6)
+        bar=_BarFrame(self); bar.setGraphicsEffect(shadow())
+        lay=QBoxLayout(QBoxLayout.Direction.LeftToRight,bar); lay.setSpacing(6)
         self.bar=bar; self._inner_lay=lay
 
-        grip=QLabel("⋮⋮"); grip.setFixedWidth(10)
-        grip.setStyleSheet(f"color:{MUT};font-size:11px;letter-spacing:-2px;background:transparent;")
-        lay.addWidget(grip)
+        self._grip=_Grip(); lay.addWidget(self._grip)
 
-        egg=load_icon("logo.png",18)
-        logo=QPushButton()
-        logo.setFixedSize(24,24)
+        egg=load_icon("logo.png",20)
+        logo=QPushButton(); logo.setFixedSize(30,30)
         logo.setCursor(Qt.CursorShape.PointingHandCursor)
         logo.setToolTip("Réafficher la fenêtre principale de DofusTeam")
-        if egg: logo.setIcon(egg); logo.setIconSize(QSize(18,18))
-        logo.setStyleSheet("QPushButton{background:transparent;border:none;}QPushButton:hover{background:rgba(255,255,255,0.08);border-radius:5px;}")
+        if egg: logo.setIcon(egg); logo.setIconSize(QSize(22,22))
+        logo.setStyleSheet("QPushButton{background:transparent;border:none;border-radius:9px;}QPushButton:hover{background:rgba(255,255,255,0.09);}")
         logo.clicked.connect(lambda: self.on_show())
         lay.addWidget(logo)
 
@@ -1113,19 +1166,19 @@ class MiniToolbar(QWidget):
         self._char_sep=sep(); self._char_sep.setVisible(False)
         lay.addWidget(self._char_sep)
         self._char_container=QWidget()
-        self._char_lay=QHBoxLayout(self._char_container)
+        self._char_lay=QBoxLayout(QBoxLayout.Direction.LeftToRight,self._char_container)
         self._char_lay.setContentsMargins(0,0,0,0); self._char_lay.setSpacing(6)
         lay.addWidget(self._char_container)
         self._char_btns=[]
 
         lay.addWidget(sep())
 
-        self.b_hsac=mkb("🏠","Havre-sac + Zaap\n1. Appuie H sur tous les persos\n2. Clique zaap calibré sur tous","transparent",icon_file="havre-sac.png",size=(40,30),icon_size=28)
-        self.b_zaap=mkb("⚡","Zaap favoris ⭐ (3.7)\nColle /zaap x y dans le chat de chaque perso calibré — plus besoin d'ouvrir le havre-sac","transparent",icon_file="icon_zaap.png",size=(40,30),icon_size=28)
-        self.b_recall=mkb("🧪","Potion de rappel\nSwitch de fenêtre + renvoie le raccourci de rappel sur tous les persos (déjà bind côté jeu)","transparent",icon_file="potion-rappel.png",size=(40,30),icon_size=28)
-        self.b_bonta=mkb("🔵","Potion de Bonta\nSwitch de fenêtre + renvoie le raccourci Bonta sur tous les persos (déjà bind côté jeu)","transparent",icon_file="potion-bonta.png",size=(40,30),icon_size=28)
-        self.b_brakmar=mkb("🔴","Potion de Brakmar\nSwitch de fenêtre + renvoie le raccourci Brakmar sur tous les persos (déjà bind côté jeu)","transparent",icon_file="potion-brakmar.png",size=(40,30),icon_size=28)
-        self.b_inv=mkb("🎒","Inventaire\nSwitch de fenêtre + renvoie le raccourci inventaire sur tous les persos (déjà bind côté jeu)","transparent",icon_file="inventaire.png",size=(40,30),icon_size=28)
+        self.b_hsac=mkb("🏠","Havre-sac + Zaap",icon_file="havre-sac.png")
+        self.b_zaap=mkb("⚡","Zaap favoris ⭐ (3.7)\nColle /zaap x y dans le chat de chaque perso calibré — plus besoin d'ouvrir le havre-sac",icon_file="icon_zaap.png")
+        self.b_recall=mkb("🧪","Potion de rappel\nSwitch de fenêtre + renvoie le raccourci de rappel sur tous les persos (déjà bind côté jeu)",icon_file="potion-rappel.png")
+        self.b_bonta=mkb("🔵","Potion de Bonta\nSwitch de fenêtre + renvoie le raccourci Bonta sur tous les persos (déjà bind côté jeu)",icon_file="potion-bonta.png")
+        self.b_brakmar=mkb("🔴","Potion de Brakmar\nSwitch de fenêtre + renvoie le raccourci Brakmar sur tous les persos (déjà bind côté jeu)",icon_file="potion-brakmar.png")
+        self.b_inv=mkb("🎒","Inventaire\nSwitch de fenêtre + renvoie le raccourci inventaire sur tous les persos (déjà bind côté jeu)",icon_file="inventaire.png")
         self.b_hsac.clicked.connect(self._quick_hsac)
         self.b_hsac.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.b_hsac.customContextMenuRequested.connect(lambda: self._show_zaap_menu())
@@ -1145,47 +1198,71 @@ class MiniToolbar(QWidget):
             "bonta_key":self.b_bonta,"brakmar_key":self.b_brakmar,
             "inventaire_key":self.b_inv,
         }
-        self.refresh_quick_actions()
 
         lay.addWidget(sep())
 
-        self.b_min=mkb("–","Réduire",size=(26,30))
-        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(26,30))
+        self.b_rot=mkb("⇅","",size=(28,28),text_size=16)
+        self.b_min=mkb("–","Réduire en pastille",size=(28,28),text_size=16)
+        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(28,28),hover="rgba(224,92,92,0.28)",text_size=13)
+        self.b_rot.clicked.connect(self._toggle_orientation)
         self.b_min.clicked.connect(self._toggle_collapse)
         self.b_close.clicked.connect(lambda:(self.hide(),self.on_show()))
-        lay.addWidget(self.b_min); lay.addWidget(self.b_close)
-
-        bar.adjustSize(); bar.move(0,0)
+        for w in (self.b_rot,self.b_min,self.b_close): lay.addWidget(w)
 
         # ── Pastille repliée (état « minimisé ») ────────────────────────
-        nub=QWidget(self); nub.setObjectName("n")
-        nub.setStyleSheet(
-            f"QWidget#n{{"
-            f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(40,32,26,0.97),stop:1 rgba(22,18,15,0.97));"
-            f"border:1.5px solid rgba(255,158,60,0.55);border-radius:18px;"
-            f"}}"
-        )
-        nlay=QHBoxLayout(nub); nlay.setContentsMargins(6,4,6,4); nlay.setSpacing(4)
-        nub_logo=QLabel()
-        if egg: nub_logo.setPixmap(egg.pixmap(18,18))
-        nub_logo.setStyleSheet("background:transparent;")
+        nub=_BarFrame(self,radius=20); nub.setGraphicsEffect(shadow())
+        nlay=QHBoxLayout(nub); nlay.setContentsMargins(9,5,5,5); nlay.setSpacing(4)
+        nub_logo=QLabel(); nub_logo.setStyleSheet("background:transparent;")
+        if egg: nub_logo.setPixmap(egg.pixmap(20,20))
         nlay.addWidget(nub_logo)
-        expand=QPushButton("»"); expand.setFixedSize(20,20)
-        expand.setStyleSheet(f"QPushButton{{background:transparent;color:{MUT};border:none;font-size:13px;font-weight:700;}}QPushButton:hover{{color:{ACC};}}")
+        expand=mkb("»","Déplier la barre",size=(26,26),text_size=15)
         expand.clicked.connect(self._toggle_collapse)
         nlay.addWidget(expand)
         nub.adjustSize(); nub.hide()
         self.nub=nub
 
-        self.resize(bar.sizeHint().width(),bar.sizeHint().height())
+        self.refresh_quick_actions()   # appelle _fit() : taille de la fenêtre = barre + marge d'ombre
+        self._apply_orientation()
         self.move(config.get("mini_toolbar_x",100),config.get("mini_toolbar_y",100))
+
+    _MARGIN=12   # marge transparente autour de la barre : sert à l'ombre portée
+
+    def _fit(self):
+        """Recalcule la taille de la fenêtre d'après la barre (ou la pastille) + marge d'ombre. Le conteneur d'avatars
+        a sa propre layout imbriquée : on l'active avant celle de la barre, sinon adjustSize() lit un sizeHint périmé."""
+        M=self._MARGIN
+        self._char_lay.activate(); self._char_container.adjustSize()
+        self.bar.layout().activate(); self.bar.adjustSize()
+        self.bar.move(M,M); self.nub.move(M,M)
+        t=self.nub if self._collapsed else self.bar
+        self.resize(t.width()+2*M,t.height()+2*M)
+
+    def _apply_orientation(self):
+        v=self._vertical
+        d=QBoxLayout.Direction.TopToBottom if v else QBoxLayout.Direction.LeftToRight
+        self._inner_lay.setDirection(d); self._char_lay.setDirection(d)
+        self._inner_lay.setContentsMargins(*((8,12,8,8) if v else (12,8,8,8)))
+        self._grip.set_vertical(v)
+        for s in self._seps: s.set_vertical(v)
+        self.bar.vertical=v; self.bar.update()
+        for lay in (self._inner_lay,self._char_lay):
+            for i in range(lay.count()):
+                w=lay.itemAt(i).widget()
+                if w: lay.setAlignment(w,Qt.AlignmentFlag.AlignCenter)
+        self.b_rot.setText("⇄" if v else "⇅")
+        self.b_rot.setToolTip("Passer la barre en horizontal" if v else "Passer la barre en vertical")
+        self._fit()
+
+    def _toggle_orientation(self):
+        self._vertical=not self._vertical
+        self.config.set("mini_toolbar_vertical",self._vertical); self.config.save()
+        self._apply_orientation()
 
     def _toggle_collapse(self):
         self._collapsed = not self._collapsed
         self.bar.setVisible(not self._collapsed)
         self.nub.setVisible(self._collapsed)
-        target = self.nub if self._collapsed else self.bar
-        self.resize(target.sizeHint().width(), target.sizeHint().height())
+        self._fit()
 
     def update_focus(self,name): self.focus_lbl.setText(name[:10] if name else "—")
     def _quick_zaap(self):
@@ -1254,34 +1331,37 @@ class MiniToolbar(QWidget):
         self._char_sep.setVisible(bool(accounts))
 
         for acc in accounts:
-            stack = QWidget(); stack.setFixedSize(32, 32)
-            b = QPushButton(stack); b.setGeometry(0, 0, 32, 32); b.setToolTip(acc["name"])
-            b.setStyle(self._instant_tooltip)
-            pix = make_avatar(acc.get("classe", ""), 28, self.config.get("sexes", {}).get(acc["name"], "h"))
-            if pix: b.setIcon(QIcon(pix)); b.setIconSize(QSize(28, 28))
-            b.setStyleSheet(
-                f"QPushButton{{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:16px;}}"
-                f"QPushButton:hover{{background:rgba(255,138,30,0.15);border-color:#ff8a1e;}}"
-            )
+            stack = QWidget(); stack.setFixedSize(36, 36)
+            b = QPushButton(stack); b.setGeometry(0, 0, 36, 36)
+            b.setToolTip(f"{acc['name']} — {acc.get('classe') or 'classe inconnue'}")
+            b.setStyle(self._instant_tooltip); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            pix = make_avatar(acc.get("classe", ""), 30, self.config.get("sexes", {}).get(acc["name"], "h"))
+            if pix: b.setIcon(QIcon(pix)); b.setIconSize(QSize(30, 30))
+            else: b.setText((acc["name"] or "?")[:1].upper())   # classe inconnue : initiale du perso
+            b.setStyleSheet(self._avatar_qss(False))
             b.clicked.connect(lambda _, n=acc["name"]: self.logic.switch_to_name(n) if self.logic else None)
-            dot = QLabel(stack); dot.setGeometry(22, 22, 9, 9)
-            dot.setStyleSheet(f"background:{GREEN}; border-radius:4px; border:2px solid {BG};")
-            self._char_lay.addWidget(stack)
+            dot = QLabel(stack); dot.setGeometry(25, 25, 10, 10)
+            dot.setStyleSheet(f"background:{GREEN}; border-radius:5px; border:2px solid #0f141b;")
+            self._char_lay.addWidget(stack, 0, Qt.AlignmentFlag.AlignCenter)
             self._char_btns.append(b)
 
         # La fenêtre a une taille fixe posée au __init__ — sans ce ré-ajustement,
         # les icônes de personnages ajoutées ci-dessus sont coupées par le bord de la fenêtre.
         # Le conteneur d'avatars a sa propre layout imbriquée : il faut l'activer avant
         # celle de la barre, sinon adjustSize() lit un sizeHint pas encore recalculé.
-        self._char_lay.activate()
-        self._char_container.adjustSize()
-        self.bar.layout().activate()
-        self.bar.adjustSize()
-        self.resize(self.bar.width(), self.bar.height())
+        self._fit()
 
         if not hasattr(self, '_focus_timer'):
             self._focus_timer = QTimer(); self._focus_timer.timeout.connect(self._update_focus_highlight)
             self._focus_timer.start(100)
+
+    @staticmethod
+    def _avatar_qss(active):
+        """Pastille d'avatar : anneau citron (DA DofusTeam) sur le perso dont la fenêtre est au premier plan."""
+        if active:
+            return ("QPushButton{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:18px;color:#e8e9ed;font-weight:700;}")
+        return ("QPushButton{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:18px;color:#7a7d8a;font-weight:700;}"
+                "QPushButton:hover{background:rgba(200,241,53,0.10);border-color:rgba(200,241,53,0.65);}")
 
     def _update_focus_highlight(self):
         if not WINDOWS or not hasattr(self, '_char_btns'): return
@@ -1293,10 +1373,8 @@ class MiniToolbar(QWidget):
         for i, b in enumerate(self._char_btns):
             if i < len(accounts):
                 is_active = (accounts[i]["name"] == fg_name)
-                b.setStyleSheet(
-                    f"QPushButton{{background:{'rgba(255,138,30,0.2)' if is_active else 'rgba(255,255,255,0.05)'};border:{'2px solid #ff8a1e' if is_active else '1px solid rgba(255,255,255,0.08)'};border-radius:16px;}}"
-                    f"QPushButton:hover{{background:rgba(255,138,30,0.15);border-color:#ff8a1e;}}"
-                )
+                qss = self._avatar_qss(is_active)
+                if b.styleSheet() != qss: b.setStyleSheet(qss)
 
     def refresh_quick_actions(self):
         """Affiche/cache les boutons potion selon leur case à cocher dans la
@@ -1304,15 +1382,8 @@ class MiniToolbar(QWidget):
         modification de cette page (voir on_change dans MainWindow)."""
         for key,btn in self._quick_potion_btns.items():
             btn.setVisible(self.config.get(f"{key}_on",True))
-        # La fenêtre (self) est dimensionnée une seule fois à la taille de
-        # bar dans __init__ — sans ce recalcul (même pattern que
-        # _rebuild_char_icons), activer un bouton l'ajoute dans le même
-        # espace figé et écrase tout le reste (avatars y compris) au lieu
-        # d'élargir la barre.
-        self.bar.layout().activate()
-        self.bar.adjustSize()
-        if not self._collapsed:
-            self.resize(self.bar.width(),self.bar.height())
+        # Recalcul de la taille : activer un bouton élargit (ou allonge) la barre au lieu d'écraser le reste.
+        self._fit()
 
     def mousePressEvent(self,e):
         if e.button()==Qt.MouseButton.LeftButton: self._drag=e.globalPosition().toPoint()-self.frameGeometry().topLeft()

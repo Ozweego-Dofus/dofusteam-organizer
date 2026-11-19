@@ -6,8 +6,8 @@ STYLE + son propre make_avatar(), avec des variations qui divergeaient au
 fil des sessions. Tout le monde importe désormais ce module.
 """
 from PyQt6.QtWidgets import QPushButton, QLabel, QApplication
-from PyQt6.QtGui import QPixmap, QFont, QIcon
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QByteArray, QBuffer, QIODevice
+from PyQt6.QtGui import QPixmap, QFont, QIcon, QImage
+from PyQt6.QtCore import Qt, QSize, QRect, pyqtSignal, QByteArray, QBuffer, QIODevice
 from paths import SKIN_DIR
 CHECK_URL = (SKIN_DIR / "check.png").as_posix()
 
@@ -181,23 +181,17 @@ def load_icon(filename, size=18):
     pix = QPixmap(str(p))
     if pix.isNull():
         return None
-    try:
-        from PIL import Image
-        import io
-        buf = pix.toImage()
-        ba = QByteArray()
-        qbuf = QBuffer(ba)
-        qbuf.open(QIODevice.OpenModeFlag.WriteOnly)
-        buf.save(qbuf, "PNG")
-        pil_im = Image.open(io.BytesIO(bytes(ba.data()))).convert("RGBA")
-        mask = pil_im.split()[-1].point(lambda a: 255 if a > 40 else 0)
-        bbox = mask.getbbox()
-        if bbox and bbox != (0, 0, pil_im.width, pil_im.height):
-            out = io.BytesIO()
-            pil_im.crop(bbox).save(out, format="PNG")
-            cropped = QPixmap()
-            if cropped.loadFromData(out.getvalue()):
-                pix = cropped
+    try:   # recadrage sur le contenu visible (alpha > 40), en Qt pur : ne dépend plus de Pillow
+        img = pix.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        w, h = img.width(), img.height()
+        ptr = img.constBits(); ptr.setsize(img.sizeInBytes())
+        data = bytes(ptr); stride = img.bytesPerLine()
+        rows = [y for y in range(h) if max(data[y * stride + 3:y * stride + 4 * w:4]) > 40]
+        cols = [x for x in range(w) if max(data[3 + 4 * x::stride]) > 40]
+        if rows and cols:
+            box = QRect(cols[0], rows[0], cols[-1] - cols[0] + 1, rows[-1] - rows[0] + 1)
+            if box != QRect(0, 0, w, h):
+                pix = pix.copy(box)
     except Exception:
         pass
     pix = pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)

@@ -85,7 +85,7 @@ class MoteurPnj(unittest.TestCase):
         r = search("3,-17", D, 0)[0]
         st = convoi_macro_steps(r, ["A", "B"], "Chef", {"arrival_delay": 5})
         seq = [(s["do"], s.get("who"), s.get("text") or s.get("key")) for s in st if s["do"] != "wait"]
-        self.assertEqual(seq, [("paste", "A", "/zaap 5 -18"), ("paste", "B", "/zaap 5 -18"), ("paste", "Chef", "/zaap 5 -18"),
+        self.assertEqual(seq, [("paste", "Chef", "/zaap 5 -18"), ("paste", "A", "/zaap 5 -18"), ("paste", "B", "/zaap 5 -18"),
                                ("key", "Chef", "ctrl+w"), ("paste", "Chef", "/travel 3,-17")])
         self.assertEqual([s["s"] for s in st if s.get("label") == "arrivée au zaap"], [5])
 

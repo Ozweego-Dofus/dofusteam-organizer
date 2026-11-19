@@ -239,12 +239,13 @@ def convoi_steps(r: Result, names: list, leader: str, anti_lag: bool = True) -> 
 
 
 # ── Convoi automatique : plan d'exécution (le même enchaînement que la macro /zaap de l'Organizer) ──────────────
-CONVOI_TIMINGS = {"arrival_delay": 4.0, "follow_delay": 1.0, "between_delay": 0.35, "follow_key": "ctrl+w", "travel_all": False}
+CONVOI_TIMINGS = {"arrival_delay": 2.0, "follow_delay": 0.5, "between_delay": 0.35, "follow_key": "ctrl+w", "travel_all": False}
 
 
 def convoi_macro_steps(r: Result, followers: list, leader: str, timings: Optional[dict] = None) -> list:
-    """Plan de la macro convoi : /zaap sur chaque suiveur (un par un), /zaap sur le chef, attente d'arrivée,
-    touche de suivi automatique sur le chef, attente, puis /travel (sur le chef ; sur tous si `travel_all`).
+    """Plan de la macro convoi : /zaap sur le chef d'abord (il part tout de suite), puis sur chaque suiveur (un par
+    un) ; une fois le tour fait, courte attente d'arrivée, touche de suivi automatique sur le chef, attente, puis
+    /travel (sur le chef ; sur tous si `travel_all`).
 
     Syntaxes confirmées en jeu : `/zaap x y` (SANS virgule) et `/travel x,y` (AVEC virgule).
     Étapes : {"do": "paste", "who", "text"} | {"do": "key", "who", "key"} | {"do": "wait", "s", "label"}.
@@ -253,11 +254,10 @@ def convoi_macro_steps(r: Result, followers: list, leader: str, timings: Optiona
     t = dict(CONVOI_TIMINGS, **(timings or {}))
     zx, zy = (r.zaap.x, r.zaap.y) if r.zaap else (r.x, r.y)
     zaap = f"/zaap {zx} {zy}"
-    steps = []
+    steps = [{"do": "paste", "who": leader, "text": zaap}]
     for n in followers:
-        steps.append({"do": "paste", "who": n, "text": zaap})
         steps.append({"do": "wait", "s": t["between_delay"], "label": "entre deux persos"})
-    steps.append({"do": "paste", "who": leader, "text": zaap})
+        steps.append({"do": "paste", "who": n, "text": zaap})
     if not r.zaap:
         return steps
     steps.append({"do": "wait", "s": t["arrival_delay"], "label": "arrivée au zaap"})
