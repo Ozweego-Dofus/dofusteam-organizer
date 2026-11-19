@@ -6,7 +6,7 @@ STYLE + son propre make_avatar(), avec des variations qui divergeaient au
 fil des sessions. Tout le monde importe désormais ce module.
 """
 from PyQt6.QtWidgets import QPushButton, QLabel, QApplication
-from PyQt6.QtGui import QPixmap, QFont, QIcon, QImage
+from PyQt6.QtGui import QPixmap, QFont, QIcon, QImage, QPainter
 from PyQt6.QtCore import Qt, QSize, QRect, pyqtSignal, QByteArray, QBuffer, QIODevice
 from paths import SKIN_DIR
 CHECK_URL = (SKIN_DIR / "check.png").as_posix()
@@ -162,26 +162,21 @@ def glass_card(widget, alpha=0.5):
 _icon_cache = {}
 
 
-def load_icon(filename, size=18):
-    """Charge une icône PNG depuis skin/ (mise en cache, redimensionnée).
+_art_cache = {}
 
-    Recadre d'abord sur le contenu réellement visible : les fichiers source
-    n'ont pas tous la même marge transparente autour du dessin, et certains
-    ont en plus un halo/ombre à alpha quasi nul qui gonfle énormément la zone
-    "non-transparente" détectée (icon_group/icon_zaap) sans rien ajouter de
-    visible — un simple getbbox() (alpha>0) gardait donc encore tout ce vide
-    et l'icône ressortait beaucoup plus petite que les autres une fois mise
-    à l'échelle. On seuille l'alpha pour ignorer ce halo quasi invisible."""
-    key = (filename, size)
-    if key in _icon_cache:
-        return _icon_cache[key]
+
+def load_art(filename):
+    """Image source pleine résolution d'une icône de skin/, recadrée sur son contenu visible (alpha > 40), en Qt pur.
+    Les fichiers n'ont pas tous la même marge transparente (certains ont aussi un halo à alpha quasi nul, ex. icon_zaap) :
+    sans recadrage l'icône ressort plus petite que les autres une fois mise à l'échelle."""
+    if filename in _art_cache:
+        return _art_cache[filename]
     p = SKIN_DIR / filename
-    if not p.exists():
-        return None
-    pix = QPixmap(str(p))
+    pix = QPixmap(str(p)) if p.exists() else QPixmap()
     if pix.isNull():
+        _art_cache[filename] = None
         return None
-    try:   # recadrage sur le contenu visible (alpha > 40), en Qt pur : ne dépend plus de Pillow
+    try:
         img = pix.toImage().convertToFormat(QImage.Format.Format_ARGB32)
         w, h = img.width(), img.height()
         ptr = img.constBits(); ptr.setsize(img.sizeInBytes())
@@ -194,7 +189,31 @@ def load_icon(filename, size=18):
                 pix = pix.copy(box)
     except Exception:
         pass
-    pix = pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    _art_cache[filename] = pix
+    return pix
+
+
+def smooth_scale(src, target):
+    """Réduction de qualité : par paliers (÷2 au plus à chaque passe) puis passe finale, ce qui garde les détails
+    bien mieux qu'une réduction directe ×3 (flou/escalier sur les contours)."""
+    pm = src
+    while max(pm.width(), pm.height()) > target * 2:
+        pm = pm.scaled(max(1, pm.width() // 2), max(1, pm.height() // 2),
+                       Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    return pm.scaled(target, target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+
+
+def load_icon(filename, size=18):
+    """Icône PNG de skin/ (mise en cache), produite à taille × ratio d'écran pour rester nette sous Windows en mise à l'échelle."""
+    key = (filename, size)
+    if key in _icon_cache:
+        return _icon_cache[key]
+    src = load_art(filename)
+    if src is None:
+        return None
+    d = device_ratio()
+    pix = smooth_scale(src, round(size * d))
+    pix.setDevicePixelRatio(d)
     icon = QIcon(pix)
     _icon_cache[key] = icon
     return icon
@@ -286,6 +305,17 @@ class ClickableAvatar(QLabel):
 _avatar_cache = {}
 
 
+def device_ratio():
+    """Facteur d'échelle de l'écran (1.25 / 1.5 / 2 sous Windows avec mise à l'échelle). Les pixmaps doivent être
+    produits à taille × ce facteur puis étiquetés avec setDevicePixelRatio : sinon Qt les génère à la taille logique
+    et les étire à l'affichage, d'où des icônes floues/pixélisées."""
+    try:
+        scr = QApplication.primaryScreen()
+        return max(1.0, float(scr.devicePixelRatio())) if scr else 1.0
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
 def make_avatar(classe, size=36, sexe="h"):
     if not classe:
         return None
@@ -300,9 +330,22 @@ def make_avatar(classe, size=36, sexe="h"):
     pix = QPixmap(str(p))
     if pix.isNull():
         return None
-    scaled = pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    d = device_ratio()
+    scaled = smooth_scale(pix, round(size * d))
+    scaled.setDevicePixelRatio(d)
     _avatar_cache[key] = scaled
     return scaled
+
+
+def avatar_source(classe, sexe="h"):
+    """Pixmap source (pleine résolution) de l'avatar d'une classe, ou None."""
+    if not classe:
+        return None
+    for f in (f"{classe.lower()}_{sexe}.png", f"{classe.lower()}.png"):
+        if (SKIN_DIR / f).exists():
+            pm = QPixmap(str(SKIN_DIR / f))
+            return None if pm.isNull() else pm
+    return None
 
 
 def load_fonts():

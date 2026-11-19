@@ -19,7 +19,7 @@ try: import pyautogui, pyperclip; pyautogui.FAILSAFE = False; PYAUTOGUI_OK = Tru
 except: PYAUTOGUI_OK = False
 
 from paths import APP_DIR, SKIN_DIR, SOUNDS_DIR, SETTINGS_PATH
-from theme import (BG, BG2, BG3, BG4, ACC, RED, GREEN, GOLD, BLUE, TEXT, MUT, BORDER, BORDER2,
+from theme import (device_ratio, load_art, smooth_scale, avatar_source, BG, BG2, BG3, BG4, ACC, RED, GREEN, GOLD, BLUE, TEXT, MUT, BORDER, BORDER2,
                     STYLE, SIDEBAR_STYLE, mono, section_label, card, accent_btn, ghost_btn, make_avatar,
                     ClickableAvatar, load_icon)
 from sidebar import Sidebar
@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.04"
+VERSION  = "V3.05"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1056,6 +1056,29 @@ class _InstantTooltipStyle(QProxyStyle):
         return super().styleHint(hint, option, widget, returnData)
 
 
+class ArtButton(QPushButton):
+    """Bouton dont l'image est dessinée à la main, au pixel près : taille physique = taille logique × ratio de CET écran,
+    position alignée sur la grille de pixels, réduction par paliers. Une QIcon classique est étirée par Qt quand le ratio
+    est fractionnaire (125 %, 150 %) et sans lissage dans un bouton — d'où des icônes floues ou en escalier."""
+    def __init__(self, *a):
+        super().__init__(*a); self._src = None; self._n = 0; self._cache = {}
+
+    def set_art(self, src, n):
+        self._src = src; self._n = n; self._cache = {}; self.update()
+
+    def paintEvent(self, e):
+        super().paintEvent(e)            # fond / bordure / texte éventuel (QSS)
+        if self._src is None: return
+        d = self.devicePixelRatioF(); t = max(1, round(self._n * d))
+        pm = self._cache.get(t)
+        if pm is None:
+            pm = smooth_scale(self._src, t); pm.setDevicePixelRatio(d); self._cache[t] = pm
+        x = round((self.width() * d - pm.width()) / 2) / d
+        y = round((self.height() * d - pm.height()) / 2) / d
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        p.drawPixmap(QPointF(x, y), pm)
+
+
 class _BarFrame(QWidget):
     """Fond de la barre flottante, dessiné à la main (antialiasing propre, contrairement à un border-radius QSS
     sur fenêtre translucide) : dégradé sombre, filet 1px discret et liseré citron sur le bord de départ."""
@@ -1081,6 +1104,27 @@ class _BarFrame(QWidget):
         lg = QLinearGradient(a, b)
         lg.setColorAt(0, QColor(200, 241, 53, 0)); lg.setColorAt(0.5, QColor(200, 241, 53, 120)); lg.setColorAt(1, QColor(200, 241, 53, 0))
         p.setPen(QPen(QBrush(lg), 1)); p.drawLine(a, b)
+
+
+class _ResizeHandle(QWidget):
+    """Poignée de redimensionnement au coin de la barre : on tire pour l'allonger / l'épaissir (voir MiniToolbar._on_resize)."""
+    def __init__(self, parent, cb):
+        super().__init__(parent); self._cb = cb
+        self.setFixedSize(14, 14); self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.setToolTip("Tirer pour redimensionner la barre\n(horizontal : longueur / vertical : épaisseur — selon le sens de la barre)")
+
+    def paintEvent(self, _):
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(200, 241, 53, 170))
+        for i in range(3):
+            for j in range(3):
+                if i + j >= 2: p.drawEllipse(QPointF(3 + i * 4, 3 + j * 4), 1.1, 1.1)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton: self._cb("start", e.globalPosition().toPoint())
+    def mouseMoveEvent(self, e):
+        if e.buttons() & Qt.MouseButton.LeftButton: self._cb("move", e.globalPosition().toPoint())
+    def mouseReleaseEvent(self, e): self._cb("end", e.globalPosition().toPoint())
 
 
 class _Grip(QWidget):
@@ -1130,35 +1174,32 @@ class MiniToolbar(QWidget):
         M=self._MARGIN
 
         def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15,scalable=True):
-            b=QPushButton("" if icon_file else icon); b.setFixedSize(*size); b.setToolTip(tip)
+            b=ArtButton("" if icon_file else icon); b.setFixedSize(*size); b.setToolTip(tip)
             if scalable: self._scal.append((b,size,icon_size,icon_file))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"QPushButton{{background:transparent;color:{MUT};border:none;border-radius:9px;font-size:{text_size}px;font-weight:700;}}"
                             f"QPushButton:hover{{background:{hover};color:{TEXT};}}QPushButton:pressed{{background:rgba(255,255,255,0.15);}}")
             if icon_file:
-                ic=load_icon(icon_file,icon_size)
-                if ic: b.setIcon(ic); b.setIconSize(QSize(icon_size,icon_size))
+                art=load_art(icon_file)
+                if art is not None: b.set_art(art,icon_size)
                 else: b.setText(icon)  # PNG absent du skin/ → fallback emoji
             return b
         self._seps=[]; self._scal=[]; self._accounts_last=[]
         def sep():
             s=_Sep(); self._seps.append(s); return s
 
-        def shadow():
-            fx=QGraphicsDropShadowEffect(); fx.setBlurRadius(20); fx.setOffset(0,4); fx.setColor(QColor(0,0,0,150)); return fx
-
         # ── Barre complète ──────────────────────────────────────────────
-        bar=_BarFrame(self); bar.setGraphicsEffect(shadow())
+        bar=_BarFrame(self)
         lay=QBoxLayout(QBoxLayout.Direction.LeftToRight,bar); lay.setSpacing(6)
         self.bar=bar; self._inner_lay=lay
 
         self._grip=_Grip(); self._grip.setToolTip("Glisser pour déplacer — clic droit : régler la taille"); lay.addWidget(self._grip)
 
         egg=load_icon("logo.png",20)
-        logo=QPushButton(); logo.setFixedSize(30,30)
+        logo=ArtButton(); logo.setFixedSize(30,30)
         logo.setCursor(Qt.CursorShape.PointingHandCursor)
         logo.setToolTip("Réafficher la fenêtre principale de DofusTeam")
-        if egg: logo.setIcon(egg); logo.setIconSize(QSize(22,22))
+        if load_art("logo.png") is not None: logo.set_art(load_art("logo.png"),22)
         logo.setStyleSheet("QPushButton{background:transparent;border:none;border-radius:9px;}QPushButton:hover{background:rgba(255,255,255,0.09);}")
         logo.clicked.connect(lambda: self.on_show())
         self._scal.append((logo,(30,30),22,"logo.png"))
@@ -1213,10 +1254,10 @@ class MiniToolbar(QWidget):
         for w in (self.b_rot,self.b_min,self.b_close): lay.addWidget(w)
 
         # ── Pastille repliée (état « minimisé ») ────────────────────────
-        nub=_BarFrame(self,radius=20); nub.setGraphicsEffect(shadow())
+        nub=_BarFrame(self,radius=20)
         nlay=QHBoxLayout(nub); nlay.setContentsMargins(9,5,5,5); nlay.setSpacing(4)
         nub_logo=QLabel(); nub_logo.setStyleSheet("background:transparent;")
-        if egg: nub_logo.setPixmap(egg.pixmap(20,20))
+        if egg: nub_logo.setPixmap(egg.pixmap(QSize(20,20),device_ratio()))
         nlay.addWidget(nub_logo)
         expand=mkb("»","Déplier la barre",size=(26,26),text_size=15,scalable=False)
         expand.clicked.connect(self._toggle_collapse)
@@ -1224,12 +1265,23 @@ class MiniToolbar(QWidget):
         nub.adjustSize(); nub.hide()
         self.nub=nub
 
+        self._handle=_ResizeHandle(self,self._on_resize); self._rs=None
         self._apply_metrics()
         self.refresh_quick_actions()   # appelle _fit() : taille de la fenêtre = barre + marge d'ombre
         self._apply_orientation()
         self.move(config.get("mini_toolbar_x",100),config.get("mini_toolbar_y",100))
 
     _MARGIN=12   # marge transparente autour de la barre : sert à l'ombre portée
+
+    def paintEvent(self,_):
+        """Ombre portée dessinée à la main (couches de rectangles arrondis translucides). Un QGraphicsDropShadowEffect
+        faisait rendre la barre et ses icônes dans un pixmap à la taille logique, étiré ensuite → rendu pixélisé."""
+        t=self.nub if self._collapsed else self.bar
+        p=QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing); p.setPen(Qt.PenStyle.NoPen)
+        r=QRectF(t.geometry()); rad=min(getattr(t,"radius",16),r.height()/2)
+        for i in range(11,0,-1):
+            p.setBrush(QColor(0,0,0,9))
+            p.drawRoundedRect(r.adjusted(-i,-i+3,i,i+3),rad+i,rad+i)
 
     def _fit(self):
         """Recalcule la taille de la fenêtre d'après la barre (ou la pastille) + marge d'ombre. Le conteneur d'avatars
@@ -1240,6 +1292,8 @@ class MiniToolbar(QWidget):
         self.bar.move(M,M); self.nub.move(M,M)
         t=self.nub if self._collapsed else self.bar
         self.resize(t.width()+2*M,t.height()+2*M)
+        self._handle.setVisible(not self._collapsed)
+        self._handle.move(M+t.width()-6,M+t.height()-6); self._handle.raise_()
 
     def _scale(self): return max(70,min(160,int(self.config.get("mini_toolbar_scale",100))))/100
     def _spacing(self): return max(2,min(28,int(self.config.get("mini_toolbar_spacing",6))))
@@ -1253,10 +1307,7 @@ class MiniToolbar(QWidget):
         sc=self._scale(); sp=self._spacing()
         for b,(w,h),isz,f in self._scal:
             b.setFixedSize(round(w*sc),round(h*sc)); n=round(isz*sc)
-            if f:
-                ic=load_icon(f,n)
-                if ic: b.setIcon(ic)
-            b.setIconSize(QSize(n,n))
+            if f and load_art(f) is not None: b.set_art(load_art(f),n)
         self._inner_lay.setSpacing(sp); self._char_lay.setSpacing(sp)
         if self._accounts_last: self._rebuild_char_icons(self._accounts_last)
         else: self._fit()
@@ -1290,6 +1341,28 @@ class MiniToolbar(QWidget):
         menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
         menu.aboutToHide.connect(self.config.save)
         menu.exec(e.globalPos())
+
+    def _gaps(self):
+        """Nombre d'espaces entre éléments (barre + bande d'avatars) : sert à convertir un déplacement en espacement."""
+        n=sum(1 for i in range(self._inner_lay.count()) if (w:=self._inner_lay.itemAt(i).widget()) is not None and not w.isHidden())
+        return max(1,(n-1)+max(0,len(self._char_btns)-1))
+
+    def _on_resize(self,phase,gpos):
+        """Tirer la poignée : le sens de la barre (longueur) règle l'espacement, l'autre sens (épaisseur) règle l'échelle."""
+        if phase=="start":
+            self._rs=dict(p=gpos,w=self.bar.width(),h=self.bar.height(),sc=int(self.config.get("mini_toolbar_scale",100)),
+                          sp=int(self.config.get("mini_toolbar_spacing",6)),gaps=self._gaps()); return
+        if not self._rs: return
+        r=self._rs
+        if phase=="end":
+            self.config.save(); self._rs=None; return
+        dx=gpos.x()-r["p"].x(); dy=gpos.y()-r["p"].y(); v=self._vertical
+        along,across=(dy,dx) if v else (dx,dy)
+        thick=r["w"] if v else r["h"]
+        sp=max(2,min(28,round(r["sp"]+along/r["gaps"])))
+        sc=max(70,min(160,round(r["sc"]*(thick+across)/thick)))
+        if (sp,sc)!=(int(self.config.get("mini_toolbar_spacing",6)),int(self.config.get("mini_toolbar_scale",100))):
+            self.config.set("mini_toolbar_spacing",sp); self.config.set("mini_toolbar_scale",sc); self._apply_metrics()
 
     def _apply_orientation(self):
         v=self._vertical
@@ -1388,11 +1461,11 @@ class MiniToolbar(QWidget):
         for acc in accounts:
             st, isz, rad = self._av()
             stack = QWidget(); stack.setFixedSize(st, st)
-            b = QPushButton(stack); b.setGeometry(0, 0, st, st)
+            b = ArtButton(stack); b.setGeometry(0, 0, st, st)
             b.setToolTip(f"{acc['name']} — {acc.get('classe') or 'classe inconnue'}")
             b.setStyle(self._instant_tooltip); b.setCursor(Qt.CursorShape.PointingHandCursor)
-            pix = make_avatar(acc.get("classe", ""), isz, self.config.get("sexes", {}).get(acc["name"], "h"))
-            if pix: b.setIcon(QIcon(pix)); b.setIconSize(QSize(isz, isz))
+            src = avatar_source(acc.get("classe", ""), self.config.get("sexes", {}).get(acc["name"], "h"))
+            if src is not None: b.set_art(src, isz)
             else: b.setText((acc["name"] or "?")[:1].upper())   # classe inconnue : initiale du perso
             b.setStyleSheet(self._avatar_qss(False, rad))
             b.clicked.connect(lambda _, n=acc["name"]: self.logic.switch_to_name(n) if self.logic else None)
