@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.08"
+VERSION  = "V3.09"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -2161,6 +2161,13 @@ def main():
     app=QApplication(sys.argv); app.setApplicationName(APP_NAME); app.setQuitOnLastWindowClosed(False)
     from theme import load_fonts; load_fonts()
     install_app_chrome(app)
+    import single_instance
+    if not single_instance.acquire():
+        ui_warn(None,"DofusTeam est déjà ouvert",
+                "Une autre fenêtre de DofusTeam tourne déjà.\n\n"
+                "Cherche-la dans la barre des tâches ou dans la zone de notification (à côté de l'horloge). "
+                "Deux instances en même temps doubleraient les raccourcis et écraseraient tes réglages.")
+        sys.exit(0)
     if (SKIN_DIR/"logo.png").exists(): app.setWindowIcon(QIcon(str(SKIN_DIR/"logo.png")))
     window=MainWindow(); window.show(); tray=AppTray(app,window)
 
