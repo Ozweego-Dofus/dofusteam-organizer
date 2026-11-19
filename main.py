@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.09"
+VERSION  = "V3.10"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1056,6 +1056,12 @@ class _InstantTooltipStyle(QProxyStyle):
         return super().styleHint(hint, option, widget, returnData)
 
 
+def _tb_qss(hover, text_size, radius=9):
+    """Style commun des boutons de la barre flottante."""
+    return (f"QPushButton{{background:transparent;color:{MUT};border:none;border-radius:{radius}px;font-size:{text_size}px;font-weight:700;}}"
+            f"QPushButton:hover{{background:{hover};color:{TEXT};}}QPushButton:pressed{{background:rgba(255,255,255,0.15);}}")
+
+
 class ArtButton(QPushButton):
     """Bouton dont l'image est dessinée à la main, au pixel près : taille physique = taille logique × ratio de CET écran,
     position alignée sur la grille de pixels, réduction par paliers. Une QIcon classique est étirée par Qt quand le ratio
@@ -1130,29 +1136,33 @@ class _ResizeHandle(QWidget):
 class _Grip(QWidget):
     """Poignée de déplacement : 6 points, orientée selon le sens de la barre."""
     def __init__(self):
-        super().__init__(); self._v = False
+        super().__init__(); self._v = False; self._k = 1.0
         self.setCursor(Qt.CursorShape.SizeAllCursor); self.set_vertical(False)
 
-    def set_vertical(self, v):
-        self._v = v; self.setFixedSize(*((24, 10) if v else (10, 24))); self.update()
+    def set_vertical(self, v, k=None):
+        self._v = v; self._k = self._k if k is None else k
+        a, b = round(24 * self._k), max(4, round(10 * self._k))
+        self.setFixedSize(*((a, b) if v else (b, a))); self.update()
 
     def paintEvent(self, _):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(122, 125, 138, 190))
         cols, rows = (3, 2) if self._v else (2, 3)
-        x0 = (self.width() - (cols - 1) * 5) / 2; y0 = (self.height() - (rows - 1) * 5) / 2
+        g = 5 * self._k; r = max(0.7, 1.2 * self._k)
+        x0 = (self.width() - (cols - 1) * g) / 2; y0 = (self.height() - (rows - 1) * g) / 2
         for i in range(cols):
             for j in range(rows):
-                p.drawEllipse(QPointF(x0 + i * 5, y0 + j * 5), 1.2, 1.2)
+                p.drawEllipse(QPointF(x0 + i * g, y0 + j * g), r, r)
 
 
 class _Sep(QWidget):
     """Séparateur fin ; devient horizontal quand la barre est verticale."""
     def __init__(self):
-        super().__init__(); self.set_vertical(False)
+        super().__init__(); self._k = 1.0; self.set_vertical(False)
 
-    def set_vertical(self, v):
-        self.setFixedSize(*((22, 1) if v else (1, 22))); self.update()
+    def set_vertical(self, v, k=None):
+        self._k = self._k if k is None else k; n = max(6, round(22 * self._k))
+        self.setFixedSize(*((n, 1) if v else (1, n))); self.update()
 
     def paintEvent(self, _):
         QPainter(self).fillRect(self.rect(), QColor(255, 255, 255, 26))
@@ -1173,18 +1183,18 @@ class MiniToolbar(QWidget):
         self._vertical=bool(config.get("mini_toolbar_vertical",False))
         M=self._MARGIN
 
-        def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15,scalable=True):
+        def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15,scalable=True,chrome=False):
             b=ArtButton("" if icon_file else icon); b.setFixedSize(*size); b.setToolTip(tip)
             if scalable: self._scal.append((b,size,icon_size,icon_file))
+            if chrome: self._chrome.append((b,size,text_size,hover))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setStyleSheet(f"QPushButton{{background:transparent;color:{MUT};border:none;border-radius:9px;font-size:{text_size}px;font-weight:700;}}"
-                            f"QPushButton:hover{{background:{hover};color:{TEXT};}}QPushButton:pressed{{background:rgba(255,255,255,0.15);}}")
+            b.setStyleSheet(_tb_qss(hover,text_size))
             if icon_file:
                 art=load_art(icon_file)
                 if art is not None: b.set_art(art,icon_size)
                 else: b.setText(icon)  # PNG absent du skin/ → fallback emoji
             return b
-        self._seps=[]; self._scal=[]; self._accounts_last=[]
+        self._seps=[]; self._scal=[]; self._chrome=[]; self._accounts_last=[]
         def sep():
             s=_Sep(); self._seps.append(s); return s
 
@@ -1245,9 +1255,9 @@ class MiniToolbar(QWidget):
 
         lay.addWidget(sep())
 
-        self.b_rot=mkb("⇅","",size=(28,28),text_size=16,scalable=False)
-        self.b_min=mkb("–","Réduire en pastille",size=(28,28),text_size=16,scalable=False)
-        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(28,28),hover="rgba(224,92,92,0.28)",text_size=13,scalable=False)
+        self.b_rot=mkb("⇅","",size=(28,28),text_size=16,scalable=False,chrome=True)
+        self.b_min=mkb("–","Réduire en pastille",size=(28,28),text_size=16,scalable=False,chrome=True)
+        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(28,28),hover="rgba(224,92,92,0.28)",text_size=13,scalable=False,chrome=True)
         self.b_rot.clicked.connect(self._toggle_orientation)
         self.b_min.clicked.connect(self._toggle_collapse)
         self.b_close.clicked.connect(lambda:(self.hide(),self.on_show()))
@@ -1295,8 +1305,14 @@ class MiniToolbar(QWidget):
         self._handle.setVisible(not self._collapsed)
         self._handle.move(M+t.width()-6,M+t.height()-6); self._handle.raise_()
 
-    def _scale(self): return max(50,min(250,int(self.config.get("mini_toolbar_scale",100))))/100
+    def _scale(self): return max(40,min(250,int(self.config.get("mini_toolbar_scale",100))))/100
     def _spacing(self): return max(2,min(60,int(self.config.get("mini_toolbar_spacing",6))))
+
+    def _chrome_scale(self): return max(0.4,min(1.0,self._scale()))
+
+    def _apply_margins(self):
+        k=self._chrome_scale(); a,b=round(12*k),round(8*k)
+        self._inner_lay.setContentsMargins(*((b,a,b,b) if self._vertical else (a,b,b,b)))
 
     def _av(self):
         """Tailles de l'avatar d'après l'échelle : (pastille, icône, rayon)."""
@@ -1305,9 +1321,16 @@ class MiniToolbar(QWidget):
     def _apply_metrics(self):
         """Applique l'échelle (taille des boutons/avatars) et l'espacement réglés par l'utilisateur."""
         sc=self._scale(); sp=self._spacing()
+        ck=self._chrome_scale()
         for b,(w,h),isz,f in self._scal:
-            b.setFixedSize(round(w*sc),round(h*sc)); n=round(isz*sc)
+            b.setFixedSize(max(8,round(w*sc)),max(8,round(h*sc))); n=max(6,round(isz*sc))
             if f and load_art(f) is not None: b.set_art(load_art(f),n)
+        # poignée, séparateurs, boutons pivoter/réduire/fermer et marges : suivent l'échelle sans passer sous 40 %
+        for b,(w,h),ts,hv in self._chrome:
+            b.setFixedSize(max(10,round(w*ck)),max(10,round(h*ck))); b.setStyleSheet(_tb_qss(hv,max(8,round(ts*ck)),max(4,round(9*ck))))
+        self._grip.set_vertical(self._vertical,ck)
+        for sp_ in self._seps: sp_.set_vertical(self._vertical,ck)
+        self._apply_margins()
         self._inner_lay.setSpacing(sp); self._char_lay.setSpacing(sp)
         if self._accounts_last: self._rebuild_char_icons(self._accounts_last)
         else: self._fit()
@@ -1335,7 +1358,7 @@ class MiniToolbar(QWidget):
             for x in (name,sl,val): l.addWidget(x)
             act=QWidgetAction(menu); act.setDefaultWidget(w); menu.addAction(act)
             sliders.append((sl,default))
-        add("Largeur" if v else "Hauteur",50,250,"mini_toolbar_scale",100,lambda x:f"{x} %")
+        add("Largeur" if v else "Hauteur",40,250,"mini_toolbar_scale",100,lambda x:f"{x} %")
         add("Hauteur" if v else "Largeur",2,60,"mini_toolbar_spacing",6,lambda x:f"{x} px")
         menu.addSeparator()
         menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
@@ -1360,7 +1383,7 @@ class MiniToolbar(QWidget):
         along,across=(dy,dx) if v else (dx,dy)
         thick=r["w"] if v else r["h"]
         sp=max(2,min(60,round(r["sp"]+along/r["gaps"])))
-        sc=max(50,min(250,round(r["sc"]*(thick+across)/thick)))
+        sc=max(40,min(250,round(r["sc"]*(thick+across)/thick)))
         if (sp,sc)!=(int(self.config.get("mini_toolbar_spacing",6)),int(self.config.get("mini_toolbar_scale",100))):
             self.config.set("mini_toolbar_spacing",sp); self.config.set("mini_toolbar_scale",sc); self._apply_metrics()
 
@@ -1368,9 +1391,9 @@ class MiniToolbar(QWidget):
         v=self._vertical
         d=QBoxLayout.Direction.TopToBottom if v else QBoxLayout.Direction.LeftToRight
         self._inner_lay.setDirection(d); self._char_lay.setDirection(d)
-        self._inner_lay.setContentsMargins(*((8,12,8,8) if v else (12,8,8,8)))
-        self._grip.set_vertical(v)
-        for s in self._seps: s.set_vertical(v)
+        self._apply_margins()
+        ck=self._chrome_scale(); self._grip.set_vertical(v,ck)
+        for s in self._seps: s.set_vertical(v,ck)
         self.bar.vertical=v; self.bar.update()
         for lay in (self._inner_lay,self._char_lay):
             for i in range(lay.count()):
@@ -1469,8 +1492,9 @@ class MiniToolbar(QWidget):
             else: b.setText((acc["name"] or "?")[:1].upper())   # classe inconnue : initiale du perso
             b.setStyleSheet(self._avatar_qss(False, rad))
             b.clicked.connect(lambda _, n=acc["name"]: self.logic.switch_to_name(n) if self.logic else None)
-            dot = QLabel(stack); dot.setGeometry(st - 11, st - 11, 10, 10)
-            dot.setStyleSheet(f"background:{GREEN}; border-radius:5px; border:2px solid #0f141b;")
+            ds = max(4, min(22, round(10 * self._scale())))   # pastille de statut proportionnelle
+            dot = QLabel(stack); dot.setGeometry(st - ds - 1, st - ds - 1, ds, ds)
+            dot.setStyleSheet(f"background:{GREEN}; border-radius:{ds // 2}px; border:{2 if ds >= 8 else 1}px solid #0f141b;")
             self._char_lay.addWidget(stack, 0, Qt.AlignmentFlag.AlignCenter); stack.show()
             self._char_btns.append(b)
 
