@@ -110,66 +110,65 @@ class UpdateDownloadThread(QThread):
             self.done.emit(False, str(e))
 
 
-def apply_update_and_restart(new_exe_path):
-    """Écrit et lance le .bat de remplacement puis quitte immédiatement ce
-    process (os._exit) pour libérer le verrou sur l'exe courant. Ne relance
-    PAS le nouvel exe automatiquement (voir commentaire dans le .bat) —
-    l'utilisateur doit rouvrir l'appli lui-même. Ne retourne jamais en cas
-    de succès."""
-    if not can_self_update():
-        return False
-    old_exe = Path(sys.executable)
-    new_exe = Path(new_exe_path)
-    bat_path = APP_DIR / "_dofusteam_update.bat"
-    bat_content = (
+def build_update_bat(old_exe, new_exe):
+    """Contenu du .bat de remplacement : attend que l'ancien exe se libère, le remplace, puis RELANCE l'appli.
+
+    Relance : un exe PyInstaller « onefile » lancé par un process qui est lui-même un exe PyInstaller hérite de ses
+    variables d'environnement internes (_MEIPASS2, _PYI_*) et croit être son enfant : il cherche alors le dossier
+    d'extraction de l'ancien process, déjà supprimé, et échoue (« Security Validation failure »). On les vide donc avant
+    le `start` et on pose PYINSTALLER_RESET_ENVIRONMENT=1 (variable prévue par PyInstaller pour se relancer soi-même).
+    La relance n'a lieu que si le remplacement a réussi (jamais après un abandon)."""
+    old_exe, new_exe = Path(old_exe), Path(new_exe)
+    return (
         "@echo off\r\n"
         "set tries=0\r\n"
         ":wait\r\n"
         f'del /f /q "{old_exe}" >nul 2>&1\r\n'
         f'if exist "{old_exe}" (\r\n'
         "    set /a tries+=1\r\n"
-        # Limite à 30 tentatives (~1 minute) : si l'ancien exe reste
-        # verrouillé au-delà (antivirus, sync cloud...), on abandonne la
-        # mise à jour plutôt que de rester coincé dans une boucle infinie.
-        # "ping" (au lieu de "timeout") ne nécessite pas de console
-        # interactive — "timeout" échoue immédiatement ("Input redirection
-        # is not supported") sans console attachée, provoquant une boucle
-        # très rapide au lieu d'une vraie attente d'1s.
+        # Limite à 30 tentatives (~1 minute) : si l'ancien exe reste verrouillé au-delà (antivirus, sync cloud...), on
+        # abandonne plutôt que de boucler. "ping" (et non "timeout") car "timeout" échoue sans console interactive.
         "    if %tries% GEQ 30 goto giveup\r\n"
         "    ping -n 2 127.0.0.1 >nul\r\n"
         "    goto wait\r\n"
         ")\r\n"
         f'ren "{new_exe}" "{old_exe.name}"\r\n'
+        "set PYINSTALLER_RESET_ENVIRONMENT=1\r\n"
+        "set _MEIPASS2=\r\n"
+        "set _PYI_ARCHIVE_FILE=\r\n"
+        "set _PYI_APPLICATION_HOME_DIR=\r\n"
+        "set _PYI_PARENT_PROCESS_LEVEL=\r\n"
+        "ping -n 3 127.0.0.1 >nul\r\n"
+        f'start "" "{old_exe}"\r\n'
         ":giveup\r\n"
-        # On NE relance PAS le nouvel exe ici. Le bootloader PyInstaller
-        # vérifie au démarrage que son processus parent est accessible, et
-        # cette vérification s'est révélée persistante et non fiable peu
-        # importe comment ce .bat le lance ("start", un CreateProcess direct
-        # depuis cmd.exe, un wrapper WScript.Shell — tout a fini par
-        # redéclencher "Security Validation failure" chez certains
-        # utilisateurs). Un lancement normal par l'utilisateur (double-clic
-        # sur son raccourci, donc explorer.exe comme parent) n'a jamais ce
-        # problème — l'appli invite donc à rouvrir manuellement après la
-        # mise à jour plutôt que de tenter un auto-relance fragile.
         'del /f /q "%~f0"\r\n'
     )
+
+
+def apply_update_and_restart(new_exe_path):
+    """Écrit et lance le .bat de remplacement (voir build_update_bat) puis quitte immédiatement ce process (os._exit)
+    pour libérer le verrou sur l'exe courant ; le .bat remplace l'exe et relance l'appli. Ne retourne jamais en cas de
+    succès."""
+    if not can_self_update():
+        return False
+    old_exe = Path(sys.executable)
+    new_exe = Path(new_exe_path)
+    bat_path = APP_DIR / "_dofusteam_update.bat"
+    bat_content = build_update_bat(old_exe, new_exe)
     bat_path.write_text(bat_content, encoding="utf-8")
-    # Le .bat ne lance plus aucun exe (voir ci-dessus) — il ne fait plus que
-    # des opérations fichier (del/ren) et s'autodétruit, donc le cacher via
-    # un wrapper WScript.Shell (windowstyle=0) est maintenant sans risque
-    # pour le contrôle de sécurité du bootloader : ça ne concernait que le
-    # lancement de l'exe, qu'on ne fait plus. CREATE_NO_WINDOW seul ne
-    # suffisait pas à cacher la fenêtre sur certaines configs (Windows
-    # Terminal en terminal par défaut), d'où cette fenêtre visible qui
-    # restait affichée pendant la boucle d'attente.
+    # Le .bat est lancé via un wrapper WScript.Shell (windowstyle=0) : CREATE_NO_WINDOW seul ne cachait pas sa fenêtre
+    # sur certaines configs (Windows Terminal en terminal par défaut) pendant la boucle d'attente.
     vbs_path = APP_DIR / "_dofusteam_update.vbs"
     vbs_content = (
         'Set s = CreateObject("WScript.Shell")\r\n'
         f's.Run """{bat_path}""", 0, False\r\n'
     )
     vbs_path.write_text(vbs_content, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k != "_MEIPASS2" and not k.startswith("_PYI_")}   # cf. build_update_bat
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     subprocess.Popen(
         ["wscript", "//B", str(vbs_path)],
+        env=env,
         creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
         cwd=str(APP_DIR),
     )

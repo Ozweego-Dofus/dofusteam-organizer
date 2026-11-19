@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.06"
+VERSION  = "V3.08"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1295,8 +1295,8 @@ class MiniToolbar(QWidget):
         self._handle.setVisible(not self._collapsed)
         self._handle.move(M+t.width()-6,M+t.height()-6); self._handle.raise_()
 
-    def _scale(self): return max(70,min(160,int(self.config.get("mini_toolbar_scale",100))))/100
-    def _spacing(self): return max(2,min(28,int(self.config.get("mini_toolbar_spacing",6))))
+    def _scale(self): return max(50,min(250,int(self.config.get("mini_toolbar_scale",100))))/100
+    def _spacing(self): return max(2,min(60,int(self.config.get("mini_toolbar_spacing",6))))
 
     def _av(self):
         """Tailles de l'avatar d'après l'échelle : (pastille, icône, rayon)."""
@@ -1335,8 +1335,8 @@ class MiniToolbar(QWidget):
             for x in (name,sl,val): l.addWidget(x)
             act=QWidgetAction(menu); act.setDefaultWidget(w); menu.addAction(act)
             sliders.append((sl,default))
-        add("Largeur" if v else "Hauteur",70,160,"mini_toolbar_scale",100,lambda x:f"{x} %")
-        add("Hauteur" if v else "Largeur",2,28,"mini_toolbar_spacing",6,lambda x:f"{x} px")
+        add("Largeur" if v else "Hauteur",50,250,"mini_toolbar_scale",100,lambda x:f"{x} %")
+        add("Hauteur" if v else "Largeur",2,60,"mini_toolbar_spacing",6,lambda x:f"{x} px")
         menu.addSeparator()
         menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
         menu.aboutToHide.connect(self.config.save)
@@ -1359,8 +1359,8 @@ class MiniToolbar(QWidget):
         dx=gpos.x()-r["p"].x(); dy=gpos.y()-r["p"].y(); v=self._vertical
         along,across=(dy,dx) if v else (dx,dy)
         thick=r["w"] if v else r["h"]
-        sp=max(2,min(28,round(r["sp"]+along/r["gaps"])))
-        sc=max(70,min(160,round(r["sc"]*(thick+across)/thick)))
+        sp=max(2,min(60,round(r["sp"]+along/r["gaps"])))
+        sc=max(50,min(250,round(r["sc"]*(thick+across)/thick)))
         if (sp,sc)!=(int(self.config.get("mini_toolbar_spacing",6)),int(self.config.get("mini_toolbar_scale",100))):
             self.config.set("mini_toolbar_spacing",sp); self.config.set("mini_toolbar_scale",sc); self._apply_metrics()
 
@@ -1795,8 +1795,8 @@ class MainWindow(QMainWindow):
     def _apply_update(self):
         if self._new_exe_path:
             ui_info(self, "Mise à jour prête",
-                "DofusTeam va se fermer pour terminer la mise à jour.\n"
-                "Relance-le ensuite depuis ton raccourci habituel.")
+                "DofusTeam va se fermer, installer la mise à jour puis se relancer tout seul.\n"
+                "Si rien ne s'ouvre au bout de quelques secondes, relance-le depuis ton raccourci habituel.")
             apply_update_and_restart(self._new_exe_path)
 
     def _paint_version_btn(self,color):
