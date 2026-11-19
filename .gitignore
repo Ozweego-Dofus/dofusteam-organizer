@@ -11,3 +11,9 @@ settings.json
 
 # Images collees/ajoutees dans les notes de boss — contenu utilisateur
 notes_images/
+
+# Notes perso, agents et version Mac — jamais publiés
+AGENTS.md
+.claude/
+dofusteam-mac/
+.DS_Store
