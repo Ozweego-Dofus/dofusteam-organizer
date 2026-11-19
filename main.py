@@ -27,7 +27,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.02"
+VERSION  = "V3.03"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1128,8 +1128,9 @@ class MiniToolbar(QWidget):
         self._vertical=bool(config.get("mini_toolbar_vertical",False))
         M=self._MARGIN
 
-        def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15):
+        def mkb(icon,tip,icon_file=None,size=(40,36),icon_size=30,hover="rgba(255,255,255,0.09)",text_size=15,scalable=True):
             b=QPushButton("" if icon_file else icon); b.setFixedSize(*size); b.setToolTip(tip)
+            if scalable: self._scal.append((b,size,icon_size,icon_file))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"QPushButton{{background:transparent;color:{MUT};border:none;border-radius:9px;font-size:{text_size}px;font-weight:700;}}"
                             f"QPushButton:hover{{background:{hover};color:{TEXT};}}QPushButton:pressed{{background:rgba(255,255,255,0.15);}}")
@@ -1138,7 +1139,7 @@ class MiniToolbar(QWidget):
                 if ic: b.setIcon(ic); b.setIconSize(QSize(icon_size,icon_size))
                 else: b.setText(icon)  # PNG absent du skin/ → fallback emoji
             return b
-        self._seps=[]
+        self._seps=[]; self._scal=[]; self._accounts_last=[]
         def sep():
             s=_Sep(); self._seps.append(s); return s
 
@@ -1150,7 +1151,7 @@ class MiniToolbar(QWidget):
         lay=QBoxLayout(QBoxLayout.Direction.LeftToRight,bar); lay.setSpacing(6)
         self.bar=bar; self._inner_lay=lay
 
-        self._grip=_Grip(); lay.addWidget(self._grip)
+        self._grip=_Grip(); self._grip.setToolTip("Glisser pour déplacer — clic droit : régler la taille"); lay.addWidget(self._grip)
 
         egg=load_icon("logo.png",20)
         logo=QPushButton(); logo.setFixedSize(30,30)
@@ -1159,6 +1160,7 @@ class MiniToolbar(QWidget):
         if egg: logo.setIcon(egg); logo.setIconSize(QSize(22,22))
         logo.setStyleSheet("QPushButton{background:transparent;border:none;border-radius:9px;}QPushButton:hover{background:rgba(255,255,255,0.09);}")
         logo.clicked.connect(lambda: self.on_show())
+        self._scal.append((logo,(30,30),22,"logo.png"))
         lay.addWidget(logo)
 
         # Bande d'avatars — peuplée par _rebuild_char_icons(), séparateur affiché
@@ -1201,9 +1203,9 @@ class MiniToolbar(QWidget):
 
         lay.addWidget(sep())
 
-        self.b_rot=mkb("⇅","",size=(28,28),text_size=16)
-        self.b_min=mkb("–","Réduire en pastille",size=(28,28),text_size=16)
-        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(28,28),hover="rgba(224,92,92,0.28)",text_size=13)
+        self.b_rot=mkb("⇅","",size=(28,28),text_size=16,scalable=False)
+        self.b_min=mkb("–","Réduire en pastille",size=(28,28),text_size=16,scalable=False)
+        self.b_close=mkb("✕","Fermer la barre (revenir à DofusTeam)",size=(28,28),hover="rgba(224,92,92,0.28)",text_size=13,scalable=False)
         self.b_rot.clicked.connect(self._toggle_orientation)
         self.b_min.clicked.connect(self._toggle_collapse)
         self.b_close.clicked.connect(lambda:(self.hide(),self.on_show()))
@@ -1215,12 +1217,13 @@ class MiniToolbar(QWidget):
         nub_logo=QLabel(); nub_logo.setStyleSheet("background:transparent;")
         if egg: nub_logo.setPixmap(egg.pixmap(20,20))
         nlay.addWidget(nub_logo)
-        expand=mkb("»","Déplier la barre",size=(26,26),text_size=15)
+        expand=mkb("»","Déplier la barre",size=(26,26),text_size=15,scalable=False)
         expand.clicked.connect(self._toggle_collapse)
         nlay.addWidget(expand)
         nub.adjustSize(); nub.hide()
         self.nub=nub
 
+        self._apply_metrics()
         self.refresh_quick_actions()   # appelle _fit() : taille de la fenêtre = barre + marge d'ombre
         self._apply_orientation()
         self.move(config.get("mini_toolbar_x",100),config.get("mini_toolbar_y",100))
@@ -1236,6 +1239,56 @@ class MiniToolbar(QWidget):
         self.bar.move(M,M); self.nub.move(M,M)
         t=self.nub if self._collapsed else self.bar
         self.resize(t.width()+2*M,t.height()+2*M)
+
+    def _scale(self): return max(70,min(160,int(self.config.get("mini_toolbar_scale",100))))/100
+    def _spacing(self): return max(2,min(28,int(self.config.get("mini_toolbar_spacing",6))))
+
+    def _av(self):
+        """Tailles de l'avatar d'après l'échelle : (pastille, icône, rayon)."""
+        st=round(36*self._scale()); return st,round(30*self._scale()),st//2
+
+    def _apply_metrics(self):
+        """Applique l'échelle (taille des boutons/avatars) et l'espacement réglés par l'utilisateur."""
+        sc=self._scale(); sp=self._spacing()
+        for b,(w,h),isz,f in self._scal:
+            b.setFixedSize(round(w*sc),round(h*sc)); n=round(isz*sc)
+            if f:
+                ic=load_icon(f,n)
+                if ic: b.setIcon(ic)
+            b.setIconSize(QSize(n,n))
+        self._inner_lay.setSpacing(sp); self._char_lay.setSpacing(sp)
+        if self._accounts_last: self._rebuild_char_icons(self._accounts_last)
+        else: self._fit()
+
+    def contextMenuEvent(self,e):
+        """Clic droit sur la barre : réglage de la taille. « Hauteur » / « Largeur » désignent les dimensions
+        réellement vues à l'écran, donc elles s'échangent quand la barre est verticale."""
+        if self._collapsed: return
+        v=self._vertical
+        menu=QMenu(self)
+        qss=(f"QLabel{{background:transparent;color:{TEXT};font-size:12px;}}"
+             "QSlider::groove:horizontal{height:4px;border-radius:2px;background:rgba(255,255,255,0.14);}"
+             f"QSlider::sub-page:horizontal{{border-radius:2px;background:{ACC};}}"
+             f"QSlider::handle:horizontal{{width:14px;height:14px;margin:-5px 0;border-radius:7px;background:{ACC};}}")
+        sliders=[]
+        def add(label,lo,hi,key,default,fmt):
+            w=QWidget(); w.setStyleSheet(qss); l=QHBoxLayout(w); l.setContentsMargins(14,6,14,6); l.setSpacing(10)
+            name=QLabel(label); name.setMinimumWidth(56)
+            sl=QSlider(Qt.Orientation.Horizontal); sl.setRange(lo,hi); sl.setFixedWidth(140)
+            sl.setValue(int(self.config.get(key,default)))
+            val=QLabel(fmt(sl.value())); val.setMinimumWidth(40); val.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+            def changed(x,key=key,val=val,fmt=fmt):
+                val.setText(fmt(x)); self.config.set(key,x); self._apply_metrics()
+            sl.valueChanged.connect(changed)
+            for x in (name,sl,val): l.addWidget(x)
+            act=QWidgetAction(menu); act.setDefaultWidget(w); menu.addAction(act)
+            sliders.append((sl,default))
+        add("Largeur" if v else "Hauteur",70,160,"mini_toolbar_scale",100,lambda x:f"{x} %")
+        add("Hauteur" if v else "Largeur",2,28,"mini_toolbar_spacing",6,lambda x:f"{x} px")
+        menu.addSeparator()
+        menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
+        menu.aboutToHide.connect(self.config.save)
+        menu.exec(e.globalPos())
 
     def _apply_orientation(self):
         v=self._vertical
@@ -1313,8 +1366,9 @@ class MiniToolbar(QWidget):
         (style bande d'avatars DoFrame), peuplés dans self._char_lay (voir __init__)."""
         while self._char_lay.count():
             item = self._char_lay.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w:
+                w.hide(); w.setParent(None); w.deleteLater()   # détaché tout de suite : sinon il reste affiché jusqu'au prochain tour de boucle
         self._char_btns = []
         # Défensif : un même hwnd ne doit apparaître qu'une fois (évite un
         # doublon si un scan renvoie deux fois la même fenêtre).
@@ -1327,22 +1381,23 @@ class MiniToolbar(QWidget):
             if h is not None:
                 seen_hwnds.add(h)
             deduped.append(acc)
-        accounts = deduped
+        accounts = deduped; self._accounts_last = accounts
         self._char_sep.setVisible(bool(accounts))
 
         for acc in accounts:
-            stack = QWidget(); stack.setFixedSize(36, 36)
-            b = QPushButton(stack); b.setGeometry(0, 0, 36, 36)
+            st, isz, rad = self._av()
+            stack = QWidget(); stack.setFixedSize(st, st)
+            b = QPushButton(stack); b.setGeometry(0, 0, st, st)
             b.setToolTip(f"{acc['name']} — {acc.get('classe') or 'classe inconnue'}")
             b.setStyle(self._instant_tooltip); b.setCursor(Qt.CursorShape.PointingHandCursor)
-            pix = make_avatar(acc.get("classe", ""), 30, self.config.get("sexes", {}).get(acc["name"], "h"))
-            if pix: b.setIcon(QIcon(pix)); b.setIconSize(QSize(30, 30))
+            pix = make_avatar(acc.get("classe", ""), isz, self.config.get("sexes", {}).get(acc["name"], "h"))
+            if pix: b.setIcon(QIcon(pix)); b.setIconSize(QSize(isz, isz))
             else: b.setText((acc["name"] or "?")[:1].upper())   # classe inconnue : initiale du perso
-            b.setStyleSheet(self._avatar_qss(False))
+            b.setStyleSheet(self._avatar_qss(False, rad))
             b.clicked.connect(lambda _, n=acc["name"]: self.logic.switch_to_name(n) if self.logic else None)
-            dot = QLabel(stack); dot.setGeometry(25, 25, 10, 10)
+            dot = QLabel(stack); dot.setGeometry(st - 11, st - 11, 10, 10)
             dot.setStyleSheet(f"background:{GREEN}; border-radius:5px; border:2px solid #0f141b;")
-            self._char_lay.addWidget(stack, 0, Qt.AlignmentFlag.AlignCenter)
+            self._char_lay.addWidget(stack, 0, Qt.AlignmentFlag.AlignCenter); stack.show()
             self._char_btns.append(b)
 
         # La fenêtre a une taille fixe posée au __init__ — sans ce ré-ajustement,
@@ -1356,11 +1411,11 @@ class MiniToolbar(QWidget):
             self._focus_timer.start(100)
 
     @staticmethod
-    def _avatar_qss(active):
+    def _avatar_qss(active, r=18):
         """Pastille d'avatar : anneau citron (DA DofusTeam) sur le perso dont la fenêtre est au premier plan."""
         if active:
-            return ("QPushButton{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:18px;color:#e8e9ed;font-weight:700;}")
-        return ("QPushButton{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:18px;color:#7a7d8a;font-weight:700;}"
+            return (f"QPushButton{{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
+        return (f"QPushButton{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:{r}px;color:#7a7d8a;font-weight:700;}}"
                 "QPushButton:hover{background:rgba(200,241,53,0.10);border-color:rgba(200,241,53,0.65);}")
 
     def _update_focus_highlight(self):
@@ -1373,7 +1428,7 @@ class MiniToolbar(QWidget):
         for i, b in enumerate(self._char_btns):
             if i < len(accounts):
                 is_active = (accounts[i]["name"] == fg_name)
-                qss = self._avatar_qss(is_active)
+                qss = self._avatar_qss(is_active, self._av()[2])
                 if b.styleSheet() != qss: b.setStyleSheet(qss)
 
     def refresh_quick_actions(self):
