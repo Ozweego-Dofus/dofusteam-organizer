@@ -23,11 +23,12 @@ from theme import (BG, BG2, BG3, BG4, ACC, RED, GREEN, GOLD, BLUE, TEXT, MUT, BO
                     STYLE, SIDEBAR_STYLE, mono, section_label, card, accent_btn, ghost_btn, make_avatar,
                     ClickableAvatar, load_icon)
 from sidebar import Sidebar
+from key_capture import KeyCaptureEdit
 from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as ui_info, warn as ui_warn, error as ui_error, ask_text as ui_ask_text, ask_choice as ui_ask_choice
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.03"
+VERSION  = "V3.04"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -2024,7 +2025,7 @@ class MainWindow(QMainWindow):
             lbl=QLabel(f"SLOT {i+1}")
             lbl.setStyleSheet(f"color:{MUT}; font-size:10.5px; font-weight:700; letter-spacing:1px; background:transparent;")
             cl.addWidget(lbl)
-            inp=QLineEdit(binds[i] if i<len(binds) else "")
+            inp=KeyCaptureEdit(binds[i] if i<len(binds) else "")
             inp.setFixedHeight(32)
             inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
             inp.setPlaceholderText("—")

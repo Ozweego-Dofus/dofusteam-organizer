@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer, QMimeData, pyqtSignal, QEvent
 from PyQt6.QtGui import QDrag, QPixmap
+from key_capture import KeyCaptureEdit
 from PyQt6.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
                              QApplication, QMenu, QComboBox, QSlider, QCheckBox, QSizePolicy)
 
@@ -697,7 +698,7 @@ class PnjOverlay(QWidget):
         anti.setChecked(self.prefs["anti_lag"])
         anti.toggled.connect(lambda v: self._set_pref("anti_lag", v))
         self.body_lay.addWidget(row("Anti lag (/zaap répété)", anti, "icon_zaap.png"))
-        key = QLineEdit(self.config.get("pnj_overlay_key", "f7"))
+        key = KeyCaptureEdit(self.config.get("pnj_overlay_key", "f7"))
         key.setFixedWidth(int(90 * s))
         key.setPlaceholderText("ex : f7")
         key.editingFinished.connect(lambda: self._set_hotkey(key.text().strip()))
@@ -717,7 +718,7 @@ class PnjOverlay(QWidget):
         self.body_lay.addWidget(row("Entre deux persos", dspin("between_delay", 0.1, 3), "icon_zaap.png"))
         self.body_lay.addWidget(row("Attente d'arrivée du chef au zaap", dspin("arrival_delay", 0.5, 20), "icon_zaap.png"))
         self.body_lay.addWidget(row("Attente après le suivi auto", dspin("follow_delay", 0.2, 10)))
-        fk = QLineEdit(conv["follow_key"])
+        fk = KeyCaptureEdit(conv["follow_key"])
         fk.setFixedWidth(int(90 * s))
         fk.editingFinished.connect(lambda: (conv.__setitem__("follow_key", fk.text().strip().lower() or "ctrl+w"), self.prefs.save()))
         self.body_lay.addWidget(row("Touche du suivi automatique", fk))

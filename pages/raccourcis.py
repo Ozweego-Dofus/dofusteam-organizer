@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from key_capture import KeyCaptureEdit
 from theme import MUT, TEXT, ACC, BG, section_label, card, load_icon
 
 
@@ -102,7 +103,7 @@ class RaccourcisPage(QWidget):
         lb.setWordWrap(True)
         lay.addWidget(lb, stretch=1)
 
-        inp = QLineEdit(self.config.get(key, ""))
+        inp = KeyCaptureEdit(self.config.get(key, ""))
         inp.setFixedHeight(26)
         inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inp.setPlaceholderText("—")
