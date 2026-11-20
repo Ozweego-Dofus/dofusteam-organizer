@@ -7,7 +7,7 @@ fil des sessions. Tout le monde importe désormais ce module.
 """
 from PyQt6.QtWidgets import QPushButton, QLabel, QApplication
 from PyQt6.QtGui import QPixmap, QFont, QIcon, QImage, QPainter
-from PyQt6.QtCore import Qt, QSize, QRect, pyqtSignal, QByteArray, QBuffer, QIODevice
+from PyQt6.QtCore import Qt, QSize, QRect, QRectF, pyqtSignal, QByteArray, QBuffer, QIODevice
 from paths import SKIN_DIR
 CHECK_URL = (SKIN_DIR / "check.png").as_posix()
 
@@ -219,9 +219,10 @@ def load_icon(filename, size=18):
     return icon
 
 
-_CROWN_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="{color}">
-<path d="M3 8.5l4.2 3 4.8-6.5 4.8 6.5 4.2-3-1.6 9.5H4.6L3 8.5z"/>
-<rect x="4.3" y="19" width="15.4" height="2.2" rx="1.1"/>
+_CROWN_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<path d="M3.2 17.5L2.4 7.6l5.1 4.3L12 4.4l4.5 7.5 5.1-4.3-.8 9.9z" fill="{color}" stroke="#7a5d00" stroke-width="1" stroke-linejoin="round"/>
+<rect x="3.4" y="18.6" width="17.2" height="2.6" rx="1.3" fill="{color}" stroke="#7a5d00" stroke-width="1"/>
+<circle cx="12" cy="3.6" r="1.7" fill="#fff3b0"/><circle cx="2.2" cy="6.6" r="1.5" fill="#fff3b0"/><circle cx="21.8" cy="6.6" r="1.5" fill="#fff3b0"/>
 </svg>"""
 
 _svg_icon_cache = {}
@@ -236,10 +237,14 @@ def svg_pixmap(svg_source, size=16, color=GOLD):
     from PyQt6.QtGui import QPainter
     data = svg_source.format(color=color).encode("utf-8")
     renderer = QSvgRenderer(data)
-    pix = QPixmap(size, size)
+    dpr = device_ratio()
+    px = max(1, round(size * dpr))
+    pix = QPixmap(px, px)
     pix.fill(Qt.GlobalColor.transparent)
+    pix.setDevicePixelRatio(dpr)
     painter = QPainter(pix)
-    renderer.render(painter)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter, QRectF(0, 0, size, size))
     painter.end()
     _svg_icon_cache[key] = pix
     return pix

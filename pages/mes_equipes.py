@@ -87,11 +87,14 @@ class TeamSlotCard(QWidget):
         )
 
         if is_leader:
-            crown = QLabel(stack)
-            crown.setPixmap(crown_icon(16, GOLD))
-            crown.setGeometry(-3, -3, 18, 18)
-            crown.setStyleSheet("background:transparent;")
-            crown.setToolTip("Chef de groupe")
+            # Badge rond sombre à cheval sur l'avatar, entièrement DANS la pastille (stack) : avant, la couronne
+            # était posée à (-3,-3), donc rognée par le bord de son parent.
+            badge = QLabel(stack)
+            badge.setGeometry(AVATAR_SIZE - 24, 0, 24, 24)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setPixmap(crown_icon(16, GOLD))
+            badge.setStyleSheet(f"background:{BG}; border:1.5px solid {GOLD}; border-radius:12px;")
+            badge.setToolTip("Chef de groupe")
 
         av_row = QHBoxLayout()
         av_row.addStretch()

@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.10"
+VERSION  = "V3.11"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1220,8 +1220,9 @@ class MiniToolbar(QWidget):
         self._char_sep=sep(); self._char_sep.setVisible(False)
         lay.addWidget(self._char_sep)
         self._char_container=QWidget()
-        self._char_lay=QBoxLayout(QBoxLayout.Direction.LeftToRight,self._char_container)
+        self._char_lay=QGridLayout(self._char_container)   # 1 ligne (≤ 4 persos) ou 2 lignes/colonnes au-delà
         self._char_lay.setContentsMargins(0,0,0,0); self._char_lay.setSpacing(6)
+        self._char_stacks=[]
         lay.addWidget(self._char_container)
         self._char_btns=[]
 
@@ -1331,7 +1332,7 @@ class MiniToolbar(QWidget):
         self._grip.set_vertical(self._vertical,ck)
         for sp_ in self._seps: sp_.set_vertical(self._vertical,ck)
         self._apply_margins()
-        self._inner_lay.setSpacing(sp); self._char_lay.setSpacing(sp)
+        self._inner_lay.setSpacing(sp); self._char_lay.setHorizontalSpacing(sp); self._char_lay.setVerticalSpacing(sp)
         if self._accounts_last: self._rebuild_char_icons(self._accounts_last)
         else: self._fit()
 
@@ -1368,7 +1369,7 @@ class MiniToolbar(QWidget):
     def _gaps(self):
         """Nombre d'espaces entre éléments (barre + bande d'avatars) : sert à convertir un déplacement en espacement."""
         n=sum(1 for i in range(self._inner_lay.count()) if (w:=self._inner_lay.itemAt(i).widget()) is not None and not w.isHidden())
-        return max(1,(n-1)+max(0,len(self._char_btns)-1))
+        return max(1,(n-1)+max(0,self._char_cols()-1))
 
     def _on_resize(self,phase,gpos):
         """Tirer la poignée : le sens de la barre (longueur) règle l'espacement, l'autre sens (épaisseur) règle l'échelle."""
@@ -1390,15 +1391,15 @@ class MiniToolbar(QWidget):
     def _apply_orientation(self):
         v=self._vertical
         d=QBoxLayout.Direction.TopToBottom if v else QBoxLayout.Direction.LeftToRight
-        self._inner_lay.setDirection(d); self._char_lay.setDirection(d)
+        self._inner_lay.setDirection(d)
         self._apply_margins()
         ck=self._chrome_scale(); self._grip.set_vertical(v,ck)
         for s in self._seps: s.set_vertical(v,ck)
         self.bar.vertical=v; self.bar.update()
-        for lay in (self._inner_lay,self._char_lay):
-            for i in range(lay.count()):
-                w=lay.itemAt(i).widget()
-                if w: lay.setAlignment(w,Qt.AlignmentFlag.AlignCenter)
+        for i in range(self._inner_lay.count()):
+            w=self._inner_lay.itemAt(i).widget()
+            if w: self._inner_lay.setAlignment(w,Qt.AlignmentFlag.AlignCenter)
+        self._layout_chars()
         self.b_rot.setText("⇄" if v else "⇅")
         self.b_rot.setToolTip("Passer la barre en horizontal" if v else "Passer la barre en vertical")
         self._fit()
@@ -1419,7 +1420,28 @@ class MiniToolbar(QWidget):
         """Clic sur ⚡ Zaap → liste des favoris (menu identique à l'ancien clic
         droit sur 🏠) : sélectionner un favori ouvre tout + colle/valide la
         destination directement, sans étape manuelle de copier-coller."""
-        self._show_zaap_menu()
+        if self._zaap_chat_warning(): return
+        from zaap_popup import ZaapQuickPopup
+        from zaap_macro import send_zaap_command
+        def pick(_name,x,y):
+            send_zaap_command(self.config,self.logic,x,y,on_status=lambda m:print(f"[zaap]{m}"))
+        self._zaap_popup=ZaapQuickPopup(self.config,pick,self._open_fav_manager)
+        self._zaap_popup.popup_at(self.b_zaap,self._vertical)
+
+    def _zaap_chat_warning(self):
+        """Première ouverture de la liste zaap : prévient si 0 ou 1 personnage a le chat calibré (la commande /zaap n'est
+        collée que dans les fenêtres calibrées). Une seule fois ; True si l'utilisateur doit d'abord calibrer."""
+        if self.config.get("zaap_popup_warned",False): return False
+        pos=self.config.get("macro_positions",{}).get("chat_positions",{}) or {}
+        names=[a["name"] for a in (self.logic.get_cycle_list() if self.logic else [])]
+        ok=sum(1 for n in (names or pos) if pos.get(n))
+        if ok>=2: self.config.set("zaap_popup_warned",True); self.config.save(); return False
+        self.config.set("zaap_popup_warned",True); self.config.save()
+        ui_warn(self,"Chat non calibré",
+            ("Aucun personnage n'a son chat calibré." if ok==0 else "Un seul personnage a son chat calibré.")+
+            "\n\nLe zaap envoie la commande /zaap x y dans le chat de chaque personnage calibré : les autres seront ignorés.\n"
+            "Calibre le chat de chaque perso (page Calibration) pour en profiter pleinement.")
+        return False
 
     def _quick_hsac(self):
         if not PYAUTOGUI_OK or not self.logic: return
@@ -1461,12 +1483,10 @@ class MiniToolbar(QWidget):
     def _rebuild_char_icons(self, accounts):
         """Rebuild character icon strip after scan — avatars ronds + pastille de statut
         (style bande d'avatars DoFrame), peuplés dans self._char_lay (voir __init__)."""
-        while self._char_lay.count():
-            item = self._char_lay.takeAt(0)
-            w = item.widget()
-            if w:
-                w.hide(); w.setParent(None); w.deleteLater()   # détaché tout de suite : sinon il reste affiché jusqu'au prochain tour de boucle
-        self._char_btns = []
+        for w in self._char_stacks:
+            self._char_lay.removeWidget(w)
+            w.hide(); w.setParent(None); w.deleteLater()   # détaché tout de suite : sinon il reste affiché jusqu'au prochain tour de boucle
+        self._char_stacks = []; self._char_btns = []
         # Défensif : un même hwnd ne doit apparaître qu'une fois (évite un
         # doublon si un scan renvoie deux fois la même fenêtre).
         seen_hwnds = set()
@@ -1490,13 +1510,14 @@ class MiniToolbar(QWidget):
             src = avatar_source(acc.get("classe", ""), self.config.get("sexes", {}).get(acc["name"], "h"))
             if src is not None: b.set_art(src, isz)
             else: b.setText((acc["name"] or "?")[:1].upper())   # classe inconnue : initiale du perso
-            b.setStyleSheet(self._avatar_qss(False, rad))
+            b.setStyleSheet(self._avatar_qss(False, rad, self._ring()))
             b.clicked.connect(lambda _, n=acc["name"]: self.logic.switch_to_name(n) if self.logic else None)
             ds = max(4, min(22, round(10 * self._scale())))   # pastille de statut proportionnelle
             dot = QLabel(stack); dot.setGeometry(st - ds - 1, st - ds - 1, ds, ds)
             dot.setStyleSheet(f"background:{GREEN}; border-radius:{ds // 2}px; border:{2 if ds >= 8 else 1}px solid #0f141b;")
-            self._char_lay.addWidget(stack, 0, Qt.AlignmentFlag.AlignCenter); stack.show()
-            self._char_btns.append(b)
+            stack.show()
+            self._char_stacks.append(stack); self._char_btns.append(b)
+        self._layout_chars()
 
         # La fenêtre a une taille fixe posée au __init__ — sans ce ré-ajustement,
         # les icônes de personnages ajoutées ci-dessus sont coupées par le bord de la fenêtre.
@@ -1508,9 +1529,34 @@ class MiniToolbar(QWidget):
             self._focus_timer = QTimer(); self._focus_timer.timeout.connect(self._update_focus_highlight)
             self._focus_timer.start(100)
 
+    def _ring(self): return bool(self.config.get("mini_toolbar_avatar_ring",False))
+
+    _ROW_MAX=4   # au-delà de 4 personnages, la bande d'avatars passe sur 2 lignes (2 colonnes en vertical)
+
+    def _char_cols(self):
+        """Nombre d'avatars dans le sens de la barre : tous s'il y en a ≤ 4, sinon la moitié (arrondie au-dessus)."""
+        n=len(self._char_stacks)
+        return n if n<=self._ROW_MAX else -(-n//2)
+
+    def _layout_chars(self):
+        """Replace les avatars dans la grille : 1re moitié sur la 1re ligne (colonne en vertical), le reste sur la 2e."""
+        lay=self._char_lay
+        for w in self._char_stacks: lay.removeWidget(w)
+        n=self._char_cols(); v=self._vertical
+        for i,w in enumerate(self._char_stacks):
+            a,b=divmod(i,n) if n else (0,0)     # a = n° de ligne (0/1), b = rang le long de la barre
+            lay.addWidget(w,b if v else a,a if v else b,Qt.AlignmentFlag.AlignCenter)
+        if self.isVisible() or self._char_stacks: self._fit()
+
     @staticmethod
-    def _avatar_qss(active, r=18):
-        """Pastille d'avatar : anneau citron (DA DofusTeam) sur le perso dont la fenêtre est au premier plan."""
+    def _avatar_qss(active, r=18, ring=True):
+        """Pastille d'avatar : anneau citron (DA DofusTeam) sur le perso dont la fenêtre est au premier plan. Avec
+        ring=False (réglage mini_toolbar_avatar_ring), les avatars au repos n'ont ni fond ni cercle autour."""
+        if not ring:
+            if active:
+                return (f"QPushButton{{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
+            return (f"QPushButton{{background:transparent;border:none;border-radius:{r}px;color:#7a7d8a;font-weight:700;}}"
+                    "QPushButton:hover{background:rgba(255,255,255,0.08);}")
         if active:
             return (f"QPushButton{{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
         return (f"QPushButton{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:{r}px;color:#7a7d8a;font-weight:700;}}"
@@ -1526,7 +1572,7 @@ class MiniToolbar(QWidget):
         for i, b in enumerate(self._char_btns):
             if i < len(accounts):
                 is_active = (accounts[i]["name"] == fg_name)
-                qss = self._avatar_qss(is_active, self._av()[2])
+                qss = self._avatar_qss(is_active, self._av()[2], self._ring())
                 if b.styleSheet() != qss: b.setStyleSheet(qss)
 
     def refresh_quick_actions(self):

@@ -9,7 +9,7 @@ apply_update_and_restart() lance un petit .bat qui attend que l'exe se libère
 (boucle de "del" tant que le fichier est verrouillé — il ne l'est plus une
 fois ce process terminé), le remplace, relance l'appli et s'auto-supprime.
 """
-import os, subprocess, sys
+import os, subprocess, sys, time
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -87,9 +87,31 @@ class UpdateDownloadThread(QThread):
         self.url = url
         self.dest_path = Path(dest_path)
 
+    @staticmethod
+    def _replace_with_retry(src, dest, tries=10):
+        """Renomme src -> dest. Sous Windows, l'antivirus scanne souvent le .exe fraîchement écrit et le verrouille
+        quelques secondes (WinError 5 / 32) : on réessaie, et on retire d'abord un ancien DofusTeam_new.exe resté là
+        d'une tentative précédente (sinon le remplacement est refusé)."""
+        for i in range(tries):
+            try:
+                if dest.exists():
+                    try: os.chmod(dest, 0o666)
+                    except Exception: pass
+                    dest.unlink()
+                src.replace(dest)
+                return
+            except PermissionError:
+                if i == tries - 1:
+                    raise
+                time.sleep(0.5)
+
     def run(self):
         tmp = self.dest_path.with_suffix(".part")
         try:
+            if tmp.exists():
+                try: os.chmod(tmp, 0o666)
+                except Exception: pass
+                tmp.unlink()
             r = requests.get(self.url, stream=True, timeout=15)
             r.raise_for_status()
             total = int(r.headers.get("content-length", 0))
@@ -102,8 +124,13 @@ class UpdateDownloadThread(QThread):
                     done += len(chunk)
                     if total:
                         self.progress.emit(int(done * 100 / total))
-            tmp.replace(self.dest_path)
+            self._replace_with_retry(tmp, self.dest_path)
             self.done.emit(True, "")
+        except PermissionError:
+            try: tmp.unlink(missing_ok=True)
+            except Exception: pass
+            self.done.emit(False, "accès refusé : ferme les anciennes fenêtres DofusTeam, "
+                                  "supprime DofusTeam_new.exe à côté de l'exe, ou mets l'exe dans un dossier non protégé")
         except Exception as e:
             try: tmp.unlink(missing_ok=True)
             except Exception: pass
