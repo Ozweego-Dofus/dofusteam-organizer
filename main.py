@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.13"
+VERSION  = "V3.14"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1614,18 +1614,18 @@ class MiniToolbar(QWidget):
                 "QPushButton:hover{background:rgba(255,138,30,0.10);border-color:rgba(255,138,30,0.65);}")
 
     def _update_calib_badges(self):
-        """Pastille en haut à droite de chaque avatar : ✓ vert si le chat du perso est calibré (nécessaire à /zaap), ! orange sinon."""
+        """Pastille « ! » orange en haut à droite d'un avatar tant que le chat du perso n'est pas calibré (nécessaire à /zaap) ; elle disparaît une fois calibré."""
         pos = self.config.get("macro_positions", {}).get("chat_positions", {}) or {}
         for bd in getattr(self, "_char_badges", []):
             name = bd.property("name"); ok = bool(pos.get(name)); ds = bd.property("ds") or 10
             key = (ok, ds)
             if bd.property("_k") == key: continue
             bd.setProperty("_k", key)
-            col = "#3fb950" if ok else "#ff8a1e"
-            bd.setText("✓" if ok else "!")
+            col = "#ff8a1e"
+            bd.setText("!")
             bd.setStyleSheet(f"background:{col};color:#0b0f14;border:{2 if ds >= 8 else 1}px solid #0f141b;border-radius:{ds // 2}px;font-size:{max(5, round(ds * 0.62))}px;font-weight:900;")
-            bd.setToolTip("Chat calibré" if ok else "Chat non calibré — /zaap ignorera ce perso (page Calibration)")
-            bd.setVisible(ds >= 7)
+            bd.setToolTip("Chat non calibré — /zaap ignorera ce perso (page Calibration)")
+            bd.setVisible(ds >= 7 and not ok)   # calibré : la pastille disparaît
 
     def _update_focus_highlight(self):
         self._update_calib_badges()

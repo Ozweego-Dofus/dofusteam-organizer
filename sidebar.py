@@ -89,6 +89,10 @@ class Sidebar(QWidget):
         self._active = None
         self._build(version)
 
+    def paintEvent(self, e):
+        from theme import paint_panel
+        paint_panel(self, 16)
+
     def _build(self, version):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 8)   # boutons inset : plus de pastilles collées aux bords

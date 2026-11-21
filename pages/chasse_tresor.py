@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIntValidator
 
-from theme import (TEXT, MUT, BG2, BG3, BORDER, ACC, GOLD, section_label,
+from theme import (PANEL_GRAD, PANEL_BORDER, TEXT, MUT, BG2, BG3, BORDER, ACC, GOLD, section_label,
                     glass_card, accent_btn, ghost_btn, load_icon, mono)
 from hunt import (DIRECTIONS, HintSearchThread, ZaapSearchThread,
                    REQUESTS_OK, CLIPBOARD_OK, PYAUTOGUI_OK)
@@ -148,7 +148,7 @@ class ChasseTresorPage(QWidget):
         # les critères de recherche forment un bloc visuel unique et net.
         criteria = QWidget()
         criteria.setObjectName("CriteriaBox")
-        criteria.setStyleSheet(f"QWidget#CriteriaBox{{background:{BG2}; border:1px solid {BORDER}; border-radius:10px;}}")
+        criteria.setStyleSheet(f"QWidget#CriteriaBox{{background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:14px;}}")
         crit_lay = QVBoxLayout(criteria)
         crit_lay.setContentsMargins(14, 14, 14, 14)
         crit_lay.setSpacing(10)
@@ -323,7 +323,7 @@ class ChasseTresorPage(QWidget):
 
         box = QWidget()
         box.setObjectName("ZaapBox")
-        box.setStyleSheet(f"QWidget#ZaapBox{{background:{BG2}; border:1px solid {BORDER}; border-radius:8px;}}")
+        box.setStyleSheet(f"QWidget#ZaapBox{{background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:14px;}}")
         box_lay = QVBoxLayout(box)
         box_lay.setContentsMargins(12, 12, 12, 12)
         box_lay.setSpacing(8)

@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 
-from theme import TEXT, MUT, BG2, BG3, BORDER, ACC, STYLE, load_icon, ghost_btn
+from theme import PANEL_GRAD, PANEL_BORDER, TEXT, MUT, BG2, BG3, BORDER, ACC, STYLE, load_icon, ghost_btn
 from paths import NOTES_IMG_DIR, SKIN_DIR
 from pages.donjon_guides import DEFAULT_GUIDES
 
@@ -302,7 +302,7 @@ class BossCard(QWidget):
         self.setFixedSize(150, 170)
         self.setObjectName(f"BossCard_{boss['key']}")
         self.setStyleSheet(
-            f"QWidget#{self.objectName()} {{ background:{BG2}; border:1px solid {BORDER}; border-radius:12px; }}"
+            f"QWidget#{self.objectName()} {{ background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:14px; }}"
             f"QWidget#{self.objectName()}:hover {{ border:1px solid {ACC}; }}"
         )
 

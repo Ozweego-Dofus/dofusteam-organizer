@@ -95,7 +95,7 @@ QStackedWidget > QWidget {{ background:transparent; }}
 # Additif uniquement — ne redéfinit aucune couleur existante, juste des règles
 # de style scoped par objectName pour la nouvelle nav (sidebar + QStackedWidget).
 SIDEBAR_STYLE = f"""
-#Sidebar {{ background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:16px; }}
+#Sidebar {{ background:transparent; border:none; }}   /* fond peint par Sidebar.paintEvent (theme.paint_panel) */
 #SidebarGroupLabel {{ color:{MUT}; font-size:10px; font-weight:700; letter-spacing:1.5px;
     background:transparent; padding:14px 16px 4px 16px; }}
 #SidebarItem {{ background:transparent; color:{MUT}; border:none; border-radius:11px;
@@ -127,6 +127,27 @@ _card_seq = [0]
 
 # Langage visuel de la barre flottante, étendu à toute l'appli : panneaux en dégradé sombre, filet fin translucide,
 # coins arrondis et liseré orange en haut des cartes.
+
+
+def paint_panel(widget, radius=16, line=True):
+    """Peint le fond d'un panneau À LA MAIN (dégradé, filet, liseré orange) — strictement le même rendu que la barre
+    flottante (_BarFrame), sans dépendre des feuilles de style Qt (un QSS sur une sous-classe de QWidget ne s'applique
+    que si WA_StyledBackground est posé, et diffère selon la plateforme)."""
+    from PyQt6.QtGui import QPainter, QPainterPath, QLinearGradient, QColor, QPen, QBrush
+    from PyQt6.QtCore import QPointF
+    p = QPainter(widget); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    r = QRectF(widget.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+    rad = min(radius, r.height() / 2, r.width() / 2)
+    path = QPainterPath(); path.addRoundedRect(r, rad, rad)
+    g = QLinearGradient(r.topLeft(), r.bottomLeft()); g.setColorAt(0, QColor("#1a2029")); g.setColorAt(1, QColor("#0f141b"))
+    p.fillPath(path, g)
+    p.setPen(QPen(QColor(255, 255, 255, 30), 1)); p.drawPath(path)
+    if line:
+        a, b = QPointF(r.left() + rad + 4, r.top() + 0.5), QPointF(r.right() - rad - 4, r.top() + 0.5)
+        lg = QLinearGradient(a, b)
+        lg.setColorAt(0, QColor(255, 138, 30, 0)); lg.setColorAt(0.5, QColor(255, 138, 30, 120)); lg.setColorAt(1, QColor(255, 138, 30, 0))
+        p.setPen(QPen(QBrush(lg), 1)); p.drawLine(a, b)
+    p.end()
 
 
 class TopLine(QObject):
