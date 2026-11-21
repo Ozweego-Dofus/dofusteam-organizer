@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.14"
+VERSION  = "V3.15"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1213,6 +1213,10 @@ class MiniToolbar(QWidget):
         if load_art("logo.png") is not None: logo.set_art(load_art("logo.png"),22)
         logo.setStyleSheet("QPushButton{background:transparent;border:none;border-radius:9px;}QPushButton:hover{background:rgba(255,255,255,0.09);}")
         logo.clicked.connect(lambda: self.on_show())
+        self._logo=logo
+        self._upd_dot=QLabel(logo); self._upd_dot.setFixedSize(10,10); self._upd_dot.hide()
+        self._upd_dot.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._upd_dot.setStyleSheet("background:#ff8a1e;border:2px solid #0f141b;border-radius:5px;")
         self._scal.append((logo,(30,30),22,"logo.png"))
         lay.addWidget(logo)
 
@@ -1331,6 +1335,7 @@ class MiniToolbar(QWidget):
         for b,(w,h),ts,hv in self._chrome:
             b.setFixedSize(max(10,round(w*ck)),max(10,round(h*ck))); b.setStyleSheet(_tb_qss(hv,max(8,round(ts*ck)),max(4,round(9*ck))))
         self._grip.set_vertical(self._vertical,ck)
+        if self._upd_dot.isVisible(): self._upd_dot.move(self._logo.width()-11,0)
         for sp_ in self._seps: sp_.set_vertical(self._vertical,ck)
         self._apply_margins()
         self._inner_lay.setSpacing(sp); self._char_lay.setHorizontalSpacing(sp); self._char_lay.setVerticalSpacing(sp)
@@ -1453,6 +1458,11 @@ class MiniToolbar(QWidget):
         self._vertical=not self._vertical
         self.config.set("mini_toolbar_vertical",self._vertical); self.config.save()
         self._apply_orientation()
+
+    def set_update(self,tag):
+        """Pastille orange sur le logo : une nouvelle version est disponible (cliquer le logo ouvre l'appli)."""
+        self._upd_dot.move(self._logo.width()-11,0); self._upd_dot.show(); self._upd_dot.raise_()
+        self._logo.setToolTip(f"{tag} disponible — clique pour ouvrir DofusTeam et l'installer")
 
     def _toggle_collapse(self):
         self._collapsed = not self._collapsed
@@ -1876,6 +1886,10 @@ class MainWindow(QMainWindow):
         self._navigate("mes_equipes")
         self._update_tag=""; self._update_url=""; self._new_exe_path=None; self._update_notes=""; self._update_sha_url=""
         QTimer.singleShot(3000,self._check_update)
+        # Vérification périodique (toutes les 10 min) : une version publiée pendant que l'appli tourne est annoncée sans redémarrage.
+        self._update_busy=False; self._notified_tag=""
+        self._update_timer=QTimer(self); self._update_timer.setInterval(10*60*1000); self._update_timer.timeout.connect(self._check_update)
+        self._update_timer.start()
         # Scan automatique au lancement : sans ça, self.logic.all_accounts
         # est vide tant que l'utilisateur n'a pas cliqué "Scanner" une
         # première fois — appliquer un preset ou trier la barre Windows ne
@@ -1885,12 +1899,14 @@ class MainWindow(QMainWindow):
 
     # ── Auto-update ──────────────────────────────────────────────────────────
     def _check_update(self):
+        if self._update_busy or self._new_exe_path: return      # téléchargement en cours / mise à jour déjà prête
+        if getattr(self,"_checker",None) is not None and self._checker.isRunning(): return
         self._checker=UpdateCheckThread(VERSION)
         self._checker.done.connect(self._on_update_checked)
         self._checker.start()
 
     def _on_update_checked(self,tag,url,size):
-        if not tag: return
+        if not tag or self._update_busy or self._new_exe_path: return
         self._update_tag=tag; self._update_url=url
         self._update_notes=getattr(self._checker,"notes",""); self._update_sha_url=getattr(self._checker,"sha_url","")
         if can_self_update():
@@ -1902,6 +1918,45 @@ class MainWindow(QMainWindow):
         else:
             self.version_btn.setText(f"{tag} disponible (git pull)")
             self._paint_version_btn(GOLD)
+        if tag!=self._notified_tag:      # annoncée une seule fois par version, même si la vérification se répète
+            self._notified_tag=tag; self._announce_update(tag)
+
+    def _announce_update(self,tag):
+        """Notification en direct : pastille sur la barre flottante, bandeau dans la fenêtre principale si elle est
+        visible, et notification système (zone de notification Windows) si seule la barre est affichée — typiquement en jeu."""
+        self.mini.set_update(tag)
+        if self.isVisible():
+            self._show_update_toast(tag)
+        else:
+            try:
+                from PyQt6.QtWidgets import QSystemTrayIcon
+                if QSystemTrayIcon.isSystemTrayAvailable():
+                    tray=QSystemTrayIcon(QIcon(str(SKIN_DIR/"logo.png")),self); tray.show()
+                    tray.showMessage("DofusTeam",f"{tag} disponible — ouvre l'appli pour l'installer.",QSystemTrayIcon.MessageIcon.Information,8000)
+                    self._tray=tray; QTimer.singleShot(12000,tray.hide)
+            except Exception: pass
+
+    def _show_update_toast(self,tag):
+        old=getattr(self,"_update_toast",None)
+        if old is not None: old.deleteLater()
+        t=QFrame(self.centralWidget()); t.setObjectName("UpdateToast")
+        t.setStyleSheet(f"QFrame#UpdateToast{{background:{PANEL_GRAD};border:1px solid {ACC};border-radius:14px;}}QLabel{{background:transparent;}}")
+        lay=QHBoxLayout(t); lay.setContentsMargins(16,10,10,10); lay.setSpacing(12)
+        msg=QLabel(f"<b>{tag}</b> vient de sortir"); msg.setStyleSheet(f"color:{TEXT};font-size:13px;"); lay.addWidget(msg)
+        go=QPushButton("Voir"); go.setProperty("role","primary"); go.setCursor(Qt.CursorShape.PointingHandCursor)
+        go.clicked.connect(lambda:(t.hide(),self._start_update_download())); lay.addWidget(go)
+        x=QPushButton("✕"); x.setFixedSize(26,26); x.setCursor(Qt.CursorShape.PointingHandCursor)
+        x.setStyleSheet(f"background:transparent;color:{MUT};border:none;font-size:12px;padding:0;"); x.clicked.connect(t.hide); lay.addWidget(x)
+        t.adjustSize(); self._update_toast=t; self._place_toast(); t.show(); t.raise_()
+        QTimer.singleShot(15000,lambda:t.hide() if t is getattr(self,"_update_toast",None) else None)
+
+    def _place_toast(self):
+        t=getattr(self,"_update_toast",None)
+        if t is not None:
+            c=self.centralWidget(); t.move(max(8,c.width()-t.width()-24),max(8,c.height()-t.height()-46))
+
+    def resizeEvent(self,e):
+        super().resizeEvent(e); self._place_toast()
 
     def _start_update_download(self):
         if not self._update_url: return
@@ -1910,6 +1965,7 @@ class MainWindow(QMainWindow):
             return
         try: self.version_btn.clicked.disconnect()
         except Exception: pass
+        self._update_busy=True
         self.version_btn.setText("Téléchargement… 0%")
         self._paint_version_btn(BLUE)
         dest=APP_DIR/"DofusTeam_new.exe"
@@ -1926,6 +1982,7 @@ class MainWindow(QMainWindow):
             # Windows Defender bloquant l'écriture d'un .exe non signé sur le
             # Bureau, p.ex.) passait inaperçu : la popup de redémarrage
             # n'apparaissait jamais et rien n'expliquait pourquoi.
+            self._update_busy=False
             self.version_btn.setText(f"Échec mise à jour — {err[:40]}" if err else "Échec de la mise à jour")
             self._paint_version_btn(RED)
             self.version_btn.clicked.connect(self._start_update_download)
