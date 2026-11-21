@@ -19,7 +19,7 @@ try: import pyautogui, pyperclip; pyautogui.FAILSAFE = False; PYAUTOGUI_OK = Tru
 except: PYAUTOGUI_OK = False
 
 from paths import APP_DIR, SKIN_DIR, SOUNDS_DIR, SETTINGS_PATH
-from theme import (device_ratio, load_art, smooth_scale, avatar_source, BG, BG2, BG3, BG4, ACC, RED, GREEN, GOLD, BLUE, TEXT, MUT, BORDER, BORDER2,
+from theme import (device_ratio, PANEL_GRAD, PANEL_BORDER, TopLine, load_art, smooth_scale, avatar_source, BG, BG2, BG3, BG4, ACC, RED, GREEN, GOLD, BLUE, TEXT, MUT, BORDER, BORDER2,
                     STYLE, SIDEBAR_STYLE, mono, section_label, card, accent_btn, ghost_btn, make_avatar,
                     ClickableAvatar, load_icon)
 from sidebar import Sidebar
@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.11"
+VERSION  = "V3.12"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1748,12 +1748,12 @@ class MainWindow(QMainWindow):
         from pages.classes import ClassesPage
 
         root=_BackgroundWidget(); self.setCentralWidget(root)
-        vl=QVBoxLayout(root); vl.setContentsMargins(0,0,0,0); vl.setSpacing(0)
+        vl=QVBoxLayout(root); vl.setContentsMargins(12,10,12,0); vl.setSpacing(0)
         vl.addWidget(self._mk_header())
 
         # Corps : sidebar de navigation | pile de pages
         body=QWidget(); body.setStyleSheet("background:transparent;")
-        bl=QHBoxLayout(body); bl.setContentsMargins(0,0,0,0); bl.setSpacing(0)
+        bl=QHBoxLayout(body); bl.setContentsMargins(0,10,0,8); bl.setSpacing(12)
 
         self.sidebar=Sidebar(VERSION)
         self.sidebar.sig_navigate.connect(self._navigate)
@@ -1967,7 +1967,7 @@ class MainWindow(QMainWindow):
 
     # ── Header ────────────────────────────────────────────────────────────────
     def _mk_header(self):
-        w=QWidget(); w.setObjectName("Header"); w.setStyleSheet(f"QWidget#Header{{background:{BG2};border-bottom:1px solid {BORDER};}}"); w.setFixedHeight(64)
+        w=QWidget(); w.setObjectName("Header"); w.setStyleSheet(f"QWidget#Header{{background:{PANEL_GRAD};border:1px solid {PANEL_BORDER};border-radius:18px;}}"); TopLine(w,24); w.setFixedHeight(64)
         lay=QHBoxLayout(w); lay.setContentsMargins(20,0,20,0); lay.setSpacing(12)
 
         # Logo — load_icon() recadre la marge transparente du PNG source, sinon

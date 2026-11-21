@@ -39,10 +39,10 @@ def _make_header(title, subtitle):
 
     title_row = QHBoxLayout()
     title_row.setSpacing(8)
-    icon = load_icon("icon_zaap.png", 22)
+    icon = load_icon("icon_zaap.png", 32)
     if icon:
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(icon.pixmap(22, 22))
+        icon_lbl.setPixmap(icon.pixmap(32, 32))
         icon_lbl.setStyleSheet("background:transparent; border:none;")
         title_row.addWidget(icon_lbl)
     t = QLabel(title)
@@ -268,9 +268,6 @@ class ZaapMenuPage(QWidget):
 
         coord_row = QHBoxLayout()
         coord_row.setSpacing(4)
-        pin = QLabel("📍")
-        pin.setStyleSheet("background:transparent; border:none; font-size:11px;")
-        coord_row.addWidget(pin)
         coord_lbl = QLabel(f"[{z['coords'][0]},{z['coords'][1]}]")
         coord_lbl.setFont(mono(10))
         coord_lbl.setStyleSheet(f"color:{ACC}; background:transparent; border:none;")

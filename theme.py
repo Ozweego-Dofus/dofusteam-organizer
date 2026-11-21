@@ -5,9 +5,9 @@ zaap_dialog/zaap_favorites) redéfinissait sa propre palette + son propre
 STYLE + son propre make_avatar(), avec des variations qui divergeaient au
 fil des sessions. Tout le monde importe désormais ce module.
 """
-from PyQt6.QtWidgets import QPushButton, QLabel, QApplication
+from PyQt6.QtWidgets import QPushButton, QLabel, QApplication, QFrame
 from PyQt6.QtGui import QPixmap, QFont, QIcon, QImage, QPainter
-from PyQt6.QtCore import Qt, QSize, QRect, QRectF, pyqtSignal, QByteArray, QBuffer, QIODevice
+from PyQt6.QtCore import Qt, QSize, QRect, QRectF, QObject, QEvent, pyqtSignal, QByteArray, QBuffer, QIODevice
 from paths import SKIN_DIR
 CHECK_URL = (SKIN_DIR / "check.png").as_posix()
 
@@ -28,6 +28,10 @@ BORDER  = "rgba(255,255,255,0.07)"
 BORDER2 = "rgba(255,255,255,0.13)"
 BORDER3 = "rgba(255,255,255,0.22)"
 
+# Panneaux (langage visuel de la barre flottante) : dégradé sombre + filet fin translucide.
+PANEL_GRAD = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #1a2029,stop:1 #0f141b)"
+PANEL_BORDER = "rgba(255,255,255,0.11)"
+
 # ── Feuille de style globale ────────────────────────────────────────────────────
 # Principes : un seul accent (utilisé pour l'action principale + focus/actif),
 # le reste reste neutre. Space Mono réservé aux valeurs numériques/compteurs.
@@ -39,11 +43,11 @@ QScrollBar:vertical {{ background:{BG2}; width:4px; border-radius:2px; margin:0;
 QScrollBar::handle:vertical {{ background:{BG4}; border-radius:2px; min-height:20px; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
 QPushButton {{ background:{BG3}; color:{TEXT}; border:1px solid {BORDER};
-               border-radius:6px; padding:5px 12px; font-size:12px; }}
+               border-radius:9px; padding:5px 12px; font-size:12px; }}
 QPushButton:hover {{ background:{BG4}; border-color:{BORDER2}; }}
 QPushButton:pressed {{ background:{BG2}; }}
-QLineEdit {{ background:{BG2}; color:{TEXT}; border:1px solid {BORDER};
-             border-radius:6px; padding:5px 10px; }}
+QLineEdit {{ background:{BG2}; color:{TEXT}; border:1px solid {BORDER2};
+             border-radius:10px; padding:5px 10px; }}
 QLineEdit:focus {{ border-color:{ACC}; }}
 QComboBox {{ background:{BG3}; color:{TEXT}; border:1px solid {BORDER};
              border-radius:6px; padding:4px 10px; }}
@@ -91,14 +95,14 @@ QStackedWidget > QWidget {{ background:transparent; }}
 # Additif uniquement — ne redéfinit aucune couleur existante, juste des règles
 # de style scoped par objectName pour la nouvelle nav (sidebar + QStackedWidget).
 SIDEBAR_STYLE = f"""
-#Sidebar {{ background:{BG2}; border-right:1px solid {BORDER}; }}
+#Sidebar {{ background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:16px; }}
 #SidebarGroupLabel {{ color:{MUT}; font-size:10px; font-weight:700; letter-spacing:1.5px;
     background:transparent; padding:14px 16px 4px 16px; }}
-#SidebarItem {{ background:transparent; color:{MUT}; border:none; border-radius:8px;
-    text-align:left; padding:8px 14px; font-size:12.5px; font-weight:600; }}
-#SidebarItem:hover {{ background:{BG4}; color:{TEXT}; }}
+#SidebarItem {{ background:transparent; color:{MUT}; border:none; border-radius:11px;
+    text-align:left; padding:9px 14px; font-size:12.5px; font-weight:600; }}
+#SidebarItem:hover {{ background:rgba(255,255,255,0.07); color:{TEXT}; }}
 #SidebarItem[active="true"] {{ background:rgba(255,138,30,0.12); color:{ACC}; }}
-#PageHeader {{ background:transparent; border-bottom:1px solid {BORDER}; }}
+#PageHeader {{ background:transparent; border:none; }}
 #PageTitle {{ color:{TEXT}; font-size:18px; font-weight:700; font-family:'Space Mono',monospace;
     background:transparent; }}
 #PageSubtitle {{ color:{MUT}; font-size:12px; background:transparent; }}
@@ -121,6 +125,28 @@ def section_label(text):
 
 _card_seq = [0]
 
+# Langage visuel de la barre flottante, étendu à toute l'appli : panneaux en dégradé sombre, filet fin translucide,
+# coins arrondis et liseré citron en haut des cartes.
+
+
+class TopLine(QObject):
+    """Fin liseré citron lumineux en haut d'un panneau (comme sur la barre flottante) ; suit le redimensionnement."""
+    def __init__(self, panel, inset=14):
+        super().__init__(panel)
+        self._p, self._inset = panel, inset
+        self._l = QFrame(panel); self._l.setFixedHeight(1)
+        self._l.setStyleSheet("background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(200,241,53,0),"
+                              "stop:0.5 rgba(200,241,53,110),stop:1 rgba(200,241,53,0));border:none;")
+        self._l.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        panel.installEventFilter(self); self._fit()
+
+    def _fit(self):
+        self._l.setGeometry(self._inset, 0, max(0, self._p.width() - 2 * self._inset), 1); self._l.raise_()
+
+    def eventFilter(self, o, e):
+        if e.type() in (QEvent.Type.Resize, QEvent.Type.Show): self._fit()
+        return False
+
 
 def card(widget):
     """Fond + bordure appliqués uniquement au conteneur — jamais aux enfants.
@@ -132,7 +158,8 @@ def card(widget):
     _card_seq[0] += 1
     name = f"Card{_card_seq[0]}"
     widget.setObjectName(name)
-    widget.setStyleSheet(f"QWidget#{name} {{ background:{BG2}; border:1px solid {BORDER}; border-radius:10px; }}")
+    widget.setStyleSheet(f"QWidget#{name} {{ background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:14px; }}")
+    TopLine(widget)
     return widget
 
 
@@ -151,11 +178,8 @@ def glass_card(widget, alpha=0.5):
     _card_seq[0] += 1
     name = f"Card{_card_seq[0]}"
     widget.setObjectName(name)
-    r, g, b = _hex_to_rgb(BG2)
-    widget.setStyleSheet(
-        f"QWidget#{name} {{ background: rgba({r},{g},{b},{alpha}); "
-        f"border: 1px solid rgba(255,255,255,0.10); border-radius:12px; }}"
-    )
+    widget.setStyleSheet(f"QWidget#{name} {{ background:{PANEL_GRAD}; border:1px solid {PANEL_BORDER}; border-radius:14px; }}")
+    TopLine(widget)
     return widget
 
 

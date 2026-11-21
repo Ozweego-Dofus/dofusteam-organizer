@@ -13,7 +13,7 @@ from theme import MUT, mono, load_icon
 # (page_key, label, icone optionnelle) groupés par section — l'ordre ici fixe
 # l'ordre affiché. L'icône (fichier dans skin/) remplace l'emoji générique
 # dans le libellé quand elle est fournie.
-ICON_SIZE = 20
+ICON_SIZE = 22
 
 GROUPS = [
     ("ORGANISER", [
@@ -45,9 +45,9 @@ NON_PAGE_KEYS = {"parametres", "chasse_tresor", "pnj"}
 def _square_icon(filename, size):
     """Icône centrée dans un carré fixe : sans ça, une icône étroite (l'œuf DofusTeam) décale son libellé par rapport aux autres."""
     from PyQt6.QtGui import QPixmap, QPainter, QIcon
-    from paths import SKIN_DIR
-    pm = QPixmap(str(SKIN_DIR / filename))
-    if pm.isNull():
+    from theme import load_art
+    pm = load_art(filename)   # recadrée sur le contenu visible : sinon une icône à large marge transparente (zaap) ressort plus petite
+    if pm is None:
         return None
     pm = pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     out = QPixmap(size, size)
@@ -64,6 +64,7 @@ class Sidebar(QWidget):
     def __init__(self, version="", parent=None):
         super().__init__(parent)
         self.setObjectName("Sidebar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedWidth(210)
         self._items = {}
         self._active = None
