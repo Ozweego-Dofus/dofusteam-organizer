@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.15"
+VERSION  = "V3.16"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1227,7 +1227,7 @@ class MiniToolbar(QWidget):
         self._char_container=QWidget()
         self._char_lay=QGridLayout(self._char_container)   # 1 ligne (≤ 4 persos) ou 2 lignes/colonnes au-delà
         self._char_lay.setContentsMargins(0,0,0,0); self._char_lay.setSpacing(6)
-        self._char_stacks=[]; self._char_badges=[]
+        self._char_stacks=[]; self._char_badges=[]; self._settings=None
         lay.addWidget(self._char_container)
         self._char_btns=[]
 
@@ -1303,11 +1303,21 @@ class MiniToolbar(QWidget):
         """Recalcule la taille de la fenêtre d'après la barre (ou la pastille) + marge d'ombre. Le conteneur d'avatars
         a sa propre layout imbriquée : on l'active avant celle de la barre, sinon adjustSize() lit un sizeHint périmé."""
         M=self._MARGIN
-        self._char_lay.activate(); self._char_container.adjustSize()
+        # Taille du conteneur d'avatars CALCULÉE (et non lue dans la grille, dont le sizeHint est parfois périmé juste après
+        # une reconstruction → conteneur trop étroit, avatars écrasés les uns sur les autres).
+        n=len(self._char_stacks)
+        if n:
+            st=self._char_stacks[0].width(); sp=self._spacing(); cols=self._char_cols(); rows=-(-n//cols)
+            along=cols*st+(cols-1)*sp; across=rows*st+(rows-1)*sp
+            self._char_container.setFixedSize(*((across,along) if self._vertical else (along,across)))
+        else:
+            self._char_container.setFixedSize(0,0)
+        self._char_lay.invalidate(); self._char_lay.activate()
         self.bar.layout().activate(); self.bar.adjustSize()
         self.bar.move(M,M); self.nub.move(M,M)
         t=self.nub if self._collapsed else self.bar
         self.resize(t.width()+2*M,t.height()+2*M)
+        self._place_settings()
         self._handle.setVisible(not self._collapsed)
         self._handle.move(M+t.width()-6,M+t.height()-6); self._handle.raise_()
 
@@ -1343,35 +1353,62 @@ class MiniToolbar(QWidget):
         else: self._fit()
 
     def contextMenuEvent(self,e):
-        """Clic droit sur la barre : réglage de la taille. « Hauteur » / « Largeur » désignent les dimensions
-        réellement vues à l'écran, donc elles s'échangent quand la barre est verticale."""
+        """Clic droit sur la barre : ouvre / ferme le panneau de réglages (taille, espacement, profils)."""
         if self._collapsed: return
+        if self._settings is not None and self._settings.isVisible(): self._settings.close(); return
+        self._open_settings()
+
+    def _open_settings(self):
+        """Panneau de réglage : une vraie petite fenêtre flottante, PAS un menu popup. Un menu se fermait (et la jauge
+        « disparaissait ») dès que la barre se redimensionnait pendant qu'on déplaçait un curseur."""
         v=self._vertical
-        menu=QMenu(self)
-        qss=(f"QLabel{{background:transparent;color:{TEXT};font-size:12px;}}"
-             "QSlider::groove:horizontal{height:4px;border-radius:2px;background:rgba(255,255,255,0.14);}"
-             f"QSlider::sub-page:horizontal{{border-radius:2px;background:{ACC};}}"
-             f"QSlider::handle:horizontal{{width:14px;height:14px;margin:-5px 0;border-radius:7px;background:{ACC};}}")
+        panel=QFrame(None,Qt.WindowType.Tool|Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint)
+        panel.setObjectName("BarSettings"); panel.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        panel.setStyleSheet(
+            f"QFrame#BarSettings{{background:{PANEL_GRAD};border:1px solid {PANEL_BORDER};border-radius:14px;}}"
+            f"QLabel{{background:transparent;color:{TEXT};font-size:12px;}}"
+            "QSlider::groove:horizontal{height:4px;border-radius:2px;background:rgba(255,255,255,0.14);}"
+            f"QSlider::sub-page:horizontal{{border-radius:2px;background:{ACC};}}"
+            f"QSlider::handle:horizontal{{width:14px;height:14px;margin:-5px 0;border-radius:7px;background:{ACC};}}")
+        lay=QVBoxLayout(panel); lay.setContentsMargins(14,10,14,12); lay.setSpacing(8)
+        head=QHBoxLayout(); ttl=QLabel("Réglage de la barre"); ttl.setStyleSheet(f"color:{MUT};font-size:11px;font-weight:700;letter-spacing:1px;")
+        head.addWidget(ttl); head.addStretch()
+        x=QPushButton("✕"); x.setFixedSize(22,22); x.setCursor(Qt.CursorShape.PointingHandCursor)
+        x.setStyleSheet(f"background:transparent;color:{MUT};border:none;padding:0;font-size:12px;"); x.clicked.connect(panel.close); head.addWidget(x)
+        lay.addLayout(head)
         sliders=[]
         def add(label,lo,hi,key,default,fmt):
-            w=QWidget(); w.setStyleSheet(qss); l=QHBoxLayout(w); l.setContentsMargins(14,6,14,6); l.setSpacing(10)
+            row=QHBoxLayout(); row.setSpacing(10)
             name=QLabel(label); name.setMinimumWidth(56)
-            sl=QSlider(Qt.Orientation.Horizontal); sl.setRange(lo,hi); sl.setFixedWidth(140)
-            sl.setValue(int(self.config.get(key,default)))
-            val=QLabel(fmt(sl.value())); val.setMinimumWidth(40); val.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
-            def changed(x,key=key,val=val,fmt=fmt):
-                val.setText(fmt(x)); self.config.set(key,x); self._apply_metrics()
+            sl=QSlider(Qt.Orientation.Horizontal); sl.setRange(lo,hi); sl.setFixedWidth(150); sl.setValue(int(self.config.get(key,default)))
+            val=QLabel(fmt(sl.value())); val.setMinimumWidth(44); val.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
+            tm=QTimer(panel); tm.setSingleShot(True); tm.setInterval(25); tm.timeout.connect(self._apply_metrics)   # un recalcul de la barre au plus toutes les 25 ms
+            def changed(xv,key=key,val=val,fmt=fmt,tm=tm):
+                val.setText(fmt(xv)); self.config.set(key,xv); tm.start()
             sl.valueChanged.connect(changed)
-            for x in (name,sl,val): l.addWidget(x)
-            act=QWidgetAction(menu); act.setDefaultWidget(w); menu.addAction(act)
-            sliders.append((sl,default))
-        add("Largeur" if v else "Hauteur",40,250,"mini_toolbar_scale",100,lambda x:f"{x} %")
-        add("Hauteur" if v else "Largeur",2,60,"mini_toolbar_spacing",6,lambda x:f"{x} px")
-        menu.addSeparator()
-        self._profiles_menu(menu)
-        menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
-        menu.aboutToHide.connect(self.config.save)
-        menu.exec(e.globalPos())
+            for w in (name,sl,val): row.addWidget(w)
+            lay.addLayout(row); sliders.append((sl,default))
+        add("Largeur" if v else "Hauteur",40,250,"mini_toolbar_scale",100,lambda xv:f"{xv} %")
+        add("Hauteur" if v else "Largeur",2,60,"mini_toolbar_spacing",6,lambda xv:f"{xv} px")
+        foot=QHBoxLayout(); foot.setSpacing(8)
+        prof=QPushButton("🗂  Profils ▾"); prof.setCursor(Qt.CursorShape.PointingHandCursor)
+        def show_profiles():
+            m=QMenu(panel); self._fill_profiles(m); m.exec(prof.mapToGlobal(prof.rect().bottomLeft()))
+        prof.clicked.connect(show_profiles); foot.addWidget(prof)
+        rst=QPushButton("↺  Réinitialiser"); rst.setCursor(Qt.CursorShape.PointingHandCursor)
+        rst.clicked.connect(lambda:[sl.setValue(d) for sl,d in sliders]); foot.addWidget(rst)
+        lay.addLayout(foot)
+        panel.destroyed.connect(lambda:(self.config.save(),setattr(self,"_settings",None)))
+        self._settings=panel; panel.adjustSize(); self._place_settings(); panel.show(); panel.raise_()
+
+    def _place_settings(self):
+        """Colle le panneau sous la barre (au-dessus s'il n'y a pas la place), sans sortir de l'écran."""
+        p=self._settings
+        if p is None: return
+        scr=QGuiApplication.screenAt(self.frameGeometry().center()) or QGuiApplication.primaryScreen(); sg=scr.availableGeometry()
+        x=self.x()+self._MARGIN; y=self.y()+self.height()+4
+        if y+p.height()>sg.bottom(): y=self.y()-p.height()-4
+        p.move(max(sg.left()+4,min(x,sg.right()-p.width()-4)),max(sg.top()+4,y))
 
     _PROFILE_BTN_KEYS=("game_haven_key_on","recall_key_on","bonta_key_on","brakmar_key_on","inventaire_key_on")
 
@@ -1395,8 +1432,10 @@ class MiniToolbar(QWidget):
 
     def _profiles_menu(self,menu):
         """Sous-menu « Profils » : mémorise taille, espacement, orientation, cercle des avatars et boutons visibles."""
+        self._fill_profiles(menu.addMenu("🗂  Profils de barre"))
+
+    def _fill_profiles(self,sub):
         profs=self.config.get("mini_profiles",{}) or {}
-        sub=menu.addMenu("🗂  Profils de barre")
         cur=self.config.get("mini_profile_active","")
         for n in profs:
             sub.addAction(("● " if n==cur else "    ")+n).triggered.connect(lambda _,n=n:self.apply_profile(n))
@@ -1663,7 +1702,7 @@ class MiniToolbar(QWidget):
     def mousePressEvent(self,e):
         if e.button()==Qt.MouseButton.LeftButton: self._drag=e.globalPosition().toPoint()-self.frameGeometry().topLeft()
     def mouseMoveEvent(self,e):
-        if self._drag and e.buttons()==Qt.MouseButton.LeftButton: self.move(e.globalPosition().toPoint()-self._drag)
+        if self._drag and e.buttons()==Qt.MouseButton.LeftButton: self.move(e.globalPosition().toPoint()-self._drag); self._place_settings()
     def mouseReleaseEvent(self,e):
         if self._drag:
             self.config.set("mini_toolbar_x",self.x()); self.config.set("mini_toolbar_y",self.y()); self.config.save(); self._drag=None
