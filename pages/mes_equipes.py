@@ -224,6 +224,10 @@ class _EmptySlot(QWidget):
         )
         row = QHBoxLayout(); row.addStretch(); row.addWidget(circle); row.addStretch()
         lay.addLayout(row)
+        free = QLabel("Libre")
+        free.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        free.setStyleSheet(f"color:{MUT}; font-size:10.5px; background:transparent;")
+        lay.addWidget(free)
         lay.addStretch()
 
 
@@ -422,8 +426,11 @@ class MesEquipesPage(QWidget):
                 item.widget().deleteLater()
         presets = self.config.get("presets", [])
         if not presets:
-            empty = QLabel("Aucun preset — crée-en un via « Modifier l'ordre ».")
-            empty.setStyleSheet(f"color:{MUT}; font-size:11px; background:transparent;")
+            empty = QLabel("Aucun preset pour l'instant — règle l'ordre via « Modifier l'ordre » et enregistre-le,\n"
+                           "tu le retrouveras ici, applicable en un clic.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet(f"color:{MUT}; font-size:11.5px; background:transparent; border:1px dashed rgba(255,255,255,0.16);"
+                                "border-radius:12px; padding:6px 14px;")
             self.pills_lay.addWidget(empty)
         else:
             classes = self.config.get("classes", {})

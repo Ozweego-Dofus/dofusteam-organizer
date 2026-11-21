@@ -126,17 +126,17 @@ def section_label(text):
 _card_seq = [0]
 
 # Langage visuel de la barre flottante, étendu à toute l'appli : panneaux en dégradé sombre, filet fin translucide,
-# coins arrondis et liseré citron en haut des cartes.
+# coins arrondis et liseré orange en haut des cartes.
 
 
 class TopLine(QObject):
-    """Fin liseré citron lumineux en haut d'un panneau (comme sur la barre flottante) ; suit le redimensionnement."""
+    """Fin liseré orange lumineux en haut d'un panneau (comme sur la barre flottante) ; suit le redimensionnement."""
     def __init__(self, panel, inset=14):
         super().__init__(panel)
         self._p, self._inset = panel, inset
         self._l = QFrame(panel); self._l.setFixedHeight(1)
-        self._l.setStyleSheet("background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(200,241,53,0),"
-                              "stop:0.5 rgba(200,241,53,110),stop:1 rgba(200,241,53,0));border:none;")
+        self._l.setStyleSheet("background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(255,138,30,0),"
+                              "stop:0.5 rgba(255,138,30,110),stop:1 rgba(255,138,30,0));border:none;")
         self._l.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         panel.installEventFilter(self); self._fit()
 

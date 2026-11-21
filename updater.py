@@ -9,7 +9,7 @@ apply_update_and_restart() lance un petit .bat qui attend que l'exe se libère
 (boucle de "del" tant que le fichier est verrouillé — il ne l'est plus une
 fois ce process terminé), le remplace, relance l'appli et s'auto-supprime.
 """
-import os, subprocess, sys, time
+import hashlib, os, subprocess, sys, time
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -24,6 +24,7 @@ from paths import APP_DIR
 REPO = "Ozweego-Dofus/dofusteam-organizer"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "DofusTeam.exe"
+SHA_ASSET_NAME = "DofusTeam.exe.sha256"   # empreinte publiée avec la release (absente des anciennes versions)
 
 
 def parse_version(v):
@@ -40,6 +41,21 @@ def is_newer(remote_tag, local_version):
     return parse_version(remote_tag) > parse_version(local_version)
 
 
+def file_sha256(path, chunk=1 << 20):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(chunk), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def parse_sha_text(text):
+    """Premier mot du fichier .sha256 (format « <empreinte>  nom » ou « <empreinte> » seule), en minuscules ; "" si invalide."""
+    tok = (text or "").strip().split()
+    tok = tok[0].lower() if tok else ""
+    return tok if len(tok) == 64 and all(c in "0123456789abcdef" for c in tok) else ""
+
+
 def can_self_update():
     """True seulement en .exe compilé (PyInstaller frozen) — en dev (python
     main.py), il n'y a pas d'exe à remplacer, on ne fait que signaler."""
@@ -54,6 +70,8 @@ class UpdateCheckThread(QThread):
     def __init__(self, current_version):
         super().__init__()
         self.current_version = current_version
+        self.notes = ""      # notes de version (corps de la release GitHub) — lues après le signal done
+        self.sha_url = ""    # URL du fichier d'empreinte SHA-256, si la release en publie un
 
     def run(self):
         if not REQUESTS_OK:
@@ -66,6 +84,10 @@ class UpdateCheckThread(QThread):
             tag = data.get("tag_name", "")
             if not tag or not is_newer(tag, self.current_version):
                 self.done.emit("", "", 0); return
+            self.notes = (data.get("body") or "").strip()
+            for asset in data.get("assets", []):
+                if asset.get("name", "").lower() == SHA_ASSET_NAME.lower():
+                    self.sha_url = asset.get("browser_download_url", "")
             for asset in data.get("assets", []):
                 if asset.get("name", "").lower() == ASSET_NAME.lower():
                     self.done.emit(tag, asset.get("browser_download_url", ""), asset.get("size", 0))
@@ -82,10 +104,11 @@ class UpdateDownloadThread(QThread):
     progress = pyqtSignal(int)
     done = pyqtSignal(bool, str)
 
-    def __init__(self, url, dest_path):
+    def __init__(self, url, dest_path, sha_url=""):
         super().__init__()
         self.url = url
         self.dest_path = Path(dest_path)
+        self.sha_url = sha_url
 
     @staticmethod
     def _replace_with_retry(src, dest, tries=10):
@@ -124,6 +147,12 @@ class UpdateDownloadThread(QThread):
                     done += len(chunk)
                     if total:
                         self.progress.emit(int(done * 100 / total))
+            if self.sha_url:
+                # Intégrité : l'exe téléchargé doit correspondre à l'empreinte publiée avec la release. Si l'empreinte
+                # est annoncée mais illisible, on abandonne plutôt que d'installer un fichier non vérifié.
+                expected = parse_sha_text(requests.get(self.sha_url, timeout=15).text)
+                if not expected or file_sha256(tmp) != expected:
+                    raise ValueError("vérification d'intégrité échouée (empreinte SHA-256 différente)")
             self._replace_with_retry(tmp, self.dest_path)
             self.done.emit(True, "")
         except PermissionError:

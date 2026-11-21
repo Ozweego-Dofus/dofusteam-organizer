@@ -115,14 +115,14 @@ class KeyCaptureEdit(QLineEdit):
             self.setText(t)
         self.update()
 
-    # ── rendu : cadre citron pendant la capture, rouge si la touche est inconnue ─
+    # ── rendu : cadre orange pendant la capture, rouge si la touche est inconnue ─
     def paintEvent(self, e):
         super().paintEvent(e)
         bad = not is_valid_hotkey(self.text())
         if not (self._capturing or bad):
             return
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QPen(QColor("#e05c5c" if bad and not self._capturing else "#c8f135"), 1.5))
+        p.setPen(QPen(QColor("#e05c5c" if bad and not self._capturing else "#ff8a1e"), 1.5))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 5, 5)
         if bad and not self._capturing:

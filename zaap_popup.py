@@ -49,10 +49,10 @@ class ZaapQuickPopup(QFrame):
             f"QLineEdit:focus{{border-color:{ACC};}}"
             f"QListWidget{{background:transparent;border:none;outline:0;color:{TEXT};font-size:13px;}}"
             "QListWidget::item{padding:7px 10px;border-radius:7px;}"
-            "QListWidget::item:hover,QListWidget::item:selected{background:rgba(200,241,53,0.12);color:#e8e9ed;}"
+            "QListWidget::item:hover,QListWidget::item:selected{background:rgba(255,138,30,0.12);color:#e8e9ed;}"
             "QScrollBar:vertical{background:transparent;width:8px;margin:2px;}"
             "QScrollBar::handle:vertical{background:rgba(255,255,255,0.22);border-radius:3px;min-height:30px;}"
-            "QScrollBar::handle:vertical:hover{background:rgba(200,241,53,0.6);}"
+            "QScrollBar::handle:vertical:hover{background:rgba(255,138,30,0.6);}"
             "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical,QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:none;height:0;}"
             f"QPushButton{{background:transparent;color:{MUT};border:none;font-size:11px;padding:4px 8px;}}"
             f"QPushButton:hover{{color:{ACC};}}")

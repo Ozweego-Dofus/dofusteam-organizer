@@ -3,7 +3,7 @@ import sys, unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from updater import build_update_bat, is_newer  # noqa: E402
+from updater import build_update_bat, is_newer, parse_sha_text, file_sha256  # noqa: E402
 
 
 class UpdaterTests(unittest.TestCase):
@@ -32,6 +32,19 @@ class UpdaterTests(unittest.TestCase):
     def test_versions(self):
         self.assertTrue(is_newer("V3.07", "V3.06"))
         self.assertFalse(is_newer("V3.06", "V3.06"))
+
+    def test_empreinte_sha256(self):
+        h = "a" * 64
+        self.assertEqual(parse_sha_text(f"{h.upper()}  DofusTeam.exe\n"), h)
+        self.assertEqual(parse_sha_text("pas une empreinte"), "")
+        self.assertEqual(parse_sha_text(""), "")
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"abc"); name = f.name
+        try:
+            self.assertEqual(file_sha256(name), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        finally:
+            os.unlink(name)
 
 
 if __name__ == "__main__":

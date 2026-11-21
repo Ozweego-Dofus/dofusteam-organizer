@@ -6,7 +6,7 @@ vers le QStackedWidget. objectNames/style déjà prêts dans theme.SIDEBAR_STYLE
 (#Sidebar/#SidebarGroupLabel/#SidebarItem + attribut dynamique active=true).
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel
-from PyQt6.QtCore import pyqtSignal, Qt, QSize
+from PyQt6.QtCore import pyqtSignal, Qt, QSize, QVariantAnimation, QEasingCurve
 
 from theme import MUT, mono, load_icon
 
@@ -58,6 +58,25 @@ def _square_icon(filename, size):
     return QIcon(out)
 
 
+class _NavButton(QPushButton):
+    """Entrée du menu : le fond de survol apparaît en fondu (140 ms) au lieu de basculer d'un coup. L'entrée active garde
+    son style QSS (propriété `active`) : le fondu ne s'applique qu'aux autres."""
+    def __init__(self, *a):
+        super().__init__(*a)
+        self._anim = QVariantAnimation(self); self._anim.setDuration(140); self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._tick)
+
+    def _tick(self, t):
+        if self.property("active") == "true": return
+        self.setStyleSheet("" if t <= 0.001 else f"#SidebarItem{{background:rgba(255,255,255,{0.07 * t:.3f});color:#e8e9ed;}}")
+
+    def _go(self, end):
+        self._anim.stop(); self._anim.setStartValue(self._anim.currentValue() or 0.0); self._anim.setEndValue(end); self._anim.start()
+
+    def enterEvent(self, e): self._go(1.0); super().enterEvent(e)
+    def leaveEvent(self, e): self._go(0.0); super().leaveEvent(e)
+
+
 class Sidebar(QWidget):
     sig_navigate = pyqtSignal(str)
 
@@ -82,7 +101,7 @@ class Sidebar(QWidget):
             for entry in entries:
                 key, label = entry[0], entry[1]
                 icon_file = entry[2] if len(entry) > 2 else None
-                btn = QPushButton("  " + label.strip())      # libellés normalisés (un seul espace d'icône pour tous)
+                btn = _NavButton("  " + label.strip())      # libellés normalisés (un seul espace d'icône pour tous)
                 btn.setObjectName("SidebarItem")
                 btn.setProperty("active", "false")
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)

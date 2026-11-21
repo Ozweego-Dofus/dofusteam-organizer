@@ -41,6 +41,7 @@ DEFS = [
     ("Potion de Brakmar", "brakmar_key", "🔴"),
     ("Inventaire", "inventaire_key", "🎒"),
     ("Spam clic", "spam_click_key", "🖱"),
+    ("Afficher la barre", "bar_toggle_key", "🧰"),
 ]
 
 # Vraie icône (skin/) à la place de l'emoji fallback, quand disponible.

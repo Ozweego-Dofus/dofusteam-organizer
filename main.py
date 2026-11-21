@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.12"
+VERSION  = "V3.13"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -37,7 +37,7 @@ CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca",
 # ── Settings ──────────────────────────────────────────────────────────────────
 DEFAULT = {
     "prev_key":"<","next_key":"tab","sync_key":"decimal",
-    "toggle_app_key":"f10","refresh_key":"f5","sort_taskbar_key":"","calib_key":"f4",
+    "toggle_app_key":"f10","bar_toggle_key":"","refresh_key":"f5","sort_taskbar_key":"","calib_key":"f4",
     "auto_zaap_key":"","invite_group_key":"","paste_active_key":"","recall_key":"ctrl+shift+&","inventaire_key":"i","spam_click_key":"",
     "bonta_key":"ctrl+shift+é","brakmar_key":"ctrl+shift+\"",
     "zaap_open_delay":0.8,"zaap_click_delay":0.5,"zaap_paste_delay":0.4,
@@ -431,7 +431,7 @@ class HotkeyManager:
 
     def __init__(self,config,logic):
         self.config=config; self.logic=logic; self.active=False
-        self._hold_keys={}; self._hold_state={}; self.last_errors=[]
+        self._hold_keys={}; self._hold_state={}; self.last_errors=[]; self.bar_toggle=None   # bar_toggle : rappel (thread-safe, signal Qt) posé par MainWindow
         self._poll_timer=QTimer(); self._poll_timer.timeout.connect(self._poll_hold)
     def enable(self):
         if not KEYBOARD_OK or self.active: return
@@ -474,6 +474,7 @@ class HotkeyManager:
         # simple conversation privée en jeu déclenchait la macro Inventaire —
         # ces deux macros ne se lancent que via le bouton de la navbar (b_recall/b_inv).
         self._reg(c.get("spam_click_key") if on("spam_click_key") else "",self.logic.trigger_spam_click)
+        self._reg(c.get("bar_toggle_key") if on("bar_toggle_key") else "",lambda: self.bar_toggle() if self.bar_toggle else None)
         # appui simple : instantané, géré par le hook clavier (pas le polling)
         self._reg(c.get("next_key") if on("next_key") else "",self.logic.switch_next)
         self._reg(c.get("prev_key") if on("prev_key") else "",self.logic.switch_prev)
@@ -1087,7 +1088,7 @@ class ArtButton(QPushButton):
 
 class _BarFrame(QWidget):
     """Fond de la barre flottante, dessiné à la main (antialiasing propre, contrairement à un border-radius QSS
-    sur fenêtre translucide) : dégradé sombre, filet 1px discret et liseré citron sur le bord de départ."""
+    sur fenêtre translucide) : dégradé sombre, filet 1px discret et liseré orange sur le bord de départ."""
     def __init__(self, parent=None, radius=16):
         super().__init__(parent); self.radius = radius; self.vertical = False
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -1101,14 +1102,14 @@ class _BarFrame(QWidget):
         g.setColorAt(0, QColor("#1a2029")); g.setColorAt(1, QColor("#0f141b"))
         p.fillPath(path, g)
         p.setPen(QPen(QColor(255, 255, 255, 30), 1)); p.drawPath(path)
-        # liseré citron : fin trait lumineux le long du bord haut (ou gauche en vertical)
+        # liseré orange : fin trait lumineux le long du bord haut (ou gauche en vertical)
         inset = rad + 4
         if self.vertical:
             a, b = QPointF(r.left() + 0.5, r.top() + inset), QPointF(r.left() + 0.5, r.bottom() - inset)
         else:
             a, b = QPointF(r.left() + inset, r.top() + 0.5), QPointF(r.right() - inset, r.top() + 0.5)
         lg = QLinearGradient(a, b)
-        lg.setColorAt(0, QColor(200, 241, 53, 0)); lg.setColorAt(0.5, QColor(200, 241, 53, 120)); lg.setColorAt(1, QColor(200, 241, 53, 0))
+        lg.setColorAt(0, QColor(255, 138, 30, 0)); lg.setColorAt(0.5, QColor(255, 138, 30, 120)); lg.setColorAt(1, QColor(255, 138, 30, 0))
         p.setPen(QPen(QBrush(lg), 1)); p.drawLine(a, b)
 
 
@@ -1121,7 +1122,7 @@ class _ResizeHandle(QWidget):
 
     def paintEvent(self, _):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(200, 241, 53, 170))
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(255, 138, 30, 170))
         for i in range(3):
             for j in range(3):
                 if i + j >= 2: p.drawEllipse(QPointF(3 + i * 4, 3 + j * 4), 1.1, 1.1)
@@ -1169,7 +1170,7 @@ class _Sep(QWidget):
 
 
 class MiniToolbar(QWidget):
-    """Barre flottante : poignée + logo, bande d'avatars des personnages détectés (anneau citron sur le perso actif,
+    """Barre flottante : poignée + logo, bande d'avatars des personnages détectés (anneau orange sur le perso actif,
     pastille de statut), actions rapides (havre-sac, zaap, potions, inventaire), puis pivoter / réduire / fermer.
     Horizontale ou verticale (réglage mémorisé : mini_toolbar_vertical). « Réduire » replie la barre en pastille (self.nub)."""
 
@@ -1222,7 +1223,7 @@ class MiniToolbar(QWidget):
         self._char_container=QWidget()
         self._char_lay=QGridLayout(self._char_container)   # 1 ligne (≤ 4 persos) ou 2 lignes/colonnes au-delà
         self._char_lay.setContentsMargins(0,0,0,0); self._char_lay.setSpacing(6)
-        self._char_stacks=[]
+        self._char_stacks=[]; self._char_badges=[]
         lay.addWidget(self._char_container)
         self._char_btns=[]
 
@@ -1362,9 +1363,53 @@ class MiniToolbar(QWidget):
         add("Largeur" if v else "Hauteur",40,250,"mini_toolbar_scale",100,lambda x:f"{x} %")
         add("Hauteur" if v else "Largeur",2,60,"mini_toolbar_spacing",6,lambda x:f"{x} px")
         menu.addSeparator()
+        self._profiles_menu(menu)
         menu.addAction("↺  Réinitialiser").triggered.connect(lambda:[sl.setValue(d) for sl,d in sliders])
         menu.aboutToHide.connect(self.config.save)
         menu.exec(e.globalPos())
+
+    _PROFILE_BTN_KEYS=("game_haven_key_on","recall_key_on","bonta_key_on","brakmar_key_on","inventaire_key_on")
+
+    def _profile_snapshot(self):
+        c=self.config
+        return {"scale":int(c.get("mini_toolbar_scale",100)),"spacing":int(c.get("mini_toolbar_spacing",6)),
+                "vertical":bool(c.get("mini_toolbar_vertical",False)),"ring":self._ring(),
+                "buttons":{k:bool(c.get(k,True)) for k in self._PROFILE_BTN_KEYS}}
+
+    def apply_profile(self,name):
+        p=self.config.get("mini_profiles",{}).get(name)
+        if not p: return
+        c=self.config
+        c.set("mini_toolbar_scale",p.get("scale",100)); c.set("mini_toolbar_spacing",p.get("spacing",6))
+        c.set("mini_toolbar_vertical",bool(p.get("vertical",False))); c.set("mini_toolbar_avatar_ring",bool(p.get("ring",False)))
+        for k,v in (p.get("buttons") or {}).items(): c.set(k,bool(v))
+        c.set("mini_profile_active",name); c.save()
+        self._vertical=bool(p.get("vertical",False))
+        for key,btn in self._quick_potion_btns.items(): btn.setVisible(c.get(f"{key}_on",True))
+        self._apply_orientation(); self._apply_metrics()
+
+    def _profiles_menu(self,menu):
+        """Sous-menu « Profils » : mémorise taille, espacement, orientation, cercle des avatars et boutons visibles."""
+        profs=self.config.get("mini_profiles",{}) or {}
+        sub=menu.addMenu("🗂  Profils de barre")
+        cur=self.config.get("mini_profile_active","")
+        for n in profs:
+            sub.addAction(("● " if n==cur else "    ")+n).triggered.connect(lambda _,n=n:self.apply_profile(n))
+        if profs: sub.addSeparator()
+        def save():
+            name=ui_ask_text(self,"Enregistrer le profil","Nom du profil :",text=cur or "",placeholder="ex. 8 persos")
+            if not name or not name.strip(): return
+            name=name.strip()[:24]; d=dict(self.config.get("mini_profiles",{}) or {}); d[name]=self._profile_snapshot()
+            self.config.set("mini_profiles",d); self.config.set("mini_profile_active",name); self.config.save()
+        sub.addAction("＋  Enregistrer la barre actuelle…").triggered.connect(save)
+        if profs:
+            dele=sub.addMenu("🗑  Supprimer")
+            for n in profs:
+                def rm(_,n=n):
+                    d=dict(self.config.get("mini_profiles",{}) or {}); d.pop(n,None); self.config.set("mini_profiles",d)
+                    if self.config.get("mini_profile_active","")==n: self.config.set("mini_profile_active","")
+                    self.config.save()
+                dele.addAction(n).triggered.connect(rm)
 
     def _gaps(self):
         """Nombre d'espaces entre éléments (barre + bande d'avatars) : sert à convertir un déplacement en espacement."""
@@ -1437,11 +1482,13 @@ class MiniToolbar(QWidget):
         ok=sum(1 for n in (names or pos) if pos.get(n))
         if ok>=2: self.config.set("zaap_popup_warned",True); self.config.save(); return False
         self.config.set("zaap_popup_warned",True); self.config.save()
-        ui_warn(self,"Chat non calibré",
+        go=ui_confirm(self,"Chat non calibré",
             ("Aucun personnage n'a son chat calibré." if ok==0 else "Un seul personnage a son chat calibré.")+
             "\n\nLe zaap envoie la commande /zaap x y dans le chat de chaque personnage calibré : les autres seront ignorés.\n"
-            "Calibre le chat de chaque perso (page Calibration) pour en profiter pleinement.")
-        return False
+            "Calibre le chat de chaque perso pour en profiter pleinement.",ok="Calibrer maintenant",cancel="Plus tard")
+        if go and self.on_navigate:
+            self.on_show(); self.on_navigate("calibration")
+        return go
 
     def _quick_hsac(self):
         if not PYAUTOGUI_OK or not self.logic: return
@@ -1486,7 +1533,7 @@ class MiniToolbar(QWidget):
         for w in self._char_stacks:
             self._char_lay.removeWidget(w)
             w.hide(); w.setParent(None); w.deleteLater()   # détaché tout de suite : sinon il reste affiché jusqu'au prochain tour de boucle
-        self._char_stacks = []; self._char_btns = []
+        self._char_stacks = []; self._char_btns = []; self._char_badges = []
         # Défensif : un même hwnd ne doit apparaître qu'une fois (évite un
         # doublon si un scan renvoie deux fois la même fenêtre).
         seen_hwnds = set()
@@ -1515,9 +1562,13 @@ class MiniToolbar(QWidget):
             ds = max(4, min(22, round(10 * self._scale())))   # pastille de statut proportionnelle
             dot = QLabel(stack); dot.setGeometry(st - ds - 1, st - ds - 1, ds, ds)
             dot.setStyleSheet(f"background:{GREEN}; border-radius:{ds // 2}px; border:{2 if ds >= 8 else 1}px solid #0f141b;")
+            bd = QLabel(stack); bd.setGeometry(st - ds - 1, 0, ds, ds); bd.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            bd.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents); bd.setProperty("name", acc["name"]); bd.setProperty("ds", ds)
+            self._char_badges.append(bd)
             stack.show()
             self._char_stacks.append(stack); self._char_btns.append(b)
         self._layout_chars()
+        self._update_calib_badges()
 
         # La fenêtre a une taille fixe posée au __init__ — sans ce ré-ajustement,
         # les icônes de personnages ajoutées ci-dessus sont coupées par le bord de la fenêtre.
@@ -1550,19 +1601,34 @@ class MiniToolbar(QWidget):
 
     @staticmethod
     def _avatar_qss(active, r=18, ring=True):
-        """Pastille d'avatar : anneau citron (DA DofusTeam) sur le perso dont la fenêtre est au premier plan. Avec
+        """Pastille d'avatar : anneau orange (DA DofusTeam) sur le perso dont la fenêtre est au premier plan. Avec
         ring=False (réglage mini_toolbar_avatar_ring), les avatars au repos n'ont ni fond ni cercle autour."""
         if not ring:
             if active:
-                return (f"QPushButton{{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
+                return (f"QPushButton{{background:rgba(255,138,30,0.14);border:2px solid #ff8a1e;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
             return (f"QPushButton{{background:transparent;border:none;border-radius:{r}px;color:#7a7d8a;font-weight:700;}}"
                     "QPushButton:hover{background:rgba(255,255,255,0.08);}")
         if active:
-            return (f"QPushButton{{background:rgba(200,241,53,0.14);border:2px solid #c8f135;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
+            return (f"QPushButton{{background:rgba(255,138,30,0.14);border:2px solid #ff8a1e;border-radius:{r}px;color:#e8e9ed;font-weight:700;}}")
         return (f"QPushButton{{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:{r}px;color:#7a7d8a;font-weight:700;}}"
-                "QPushButton:hover{background:rgba(200,241,53,0.10);border-color:rgba(200,241,53,0.65);}")
+                "QPushButton:hover{background:rgba(255,138,30,0.10);border-color:rgba(255,138,30,0.65);}")
+
+    def _update_calib_badges(self):
+        """Pastille en haut à droite de chaque avatar : ✓ vert si le chat du perso est calibré (nécessaire à /zaap), ! orange sinon."""
+        pos = self.config.get("macro_positions", {}).get("chat_positions", {}) or {}
+        for bd in getattr(self, "_char_badges", []):
+            name = bd.property("name"); ok = bool(pos.get(name)); ds = bd.property("ds") or 10
+            key = (ok, ds)
+            if bd.property("_k") == key: continue
+            bd.setProperty("_k", key)
+            col = "#3fb950" if ok else "#ff8a1e"
+            bd.setText("✓" if ok else "!")
+            bd.setStyleSheet(f"background:{col};color:#0b0f14;border:{2 if ds >= 8 else 1}px solid #0f141b;border-radius:{ds // 2}px;font-size:{max(5, round(ds * 0.62))}px;font-weight:900;")
+            bd.setToolTip("Chat calibré" if ok else "Chat non calibré — /zaap ignorera ce perso (page Calibration)")
+            bd.setVisible(ds >= 7)
 
     def _update_focus_highlight(self):
+        self._update_calib_badges()
         if not WINDOWS or not hasattr(self, '_char_btns'): return
         try: fg = win32gui.GetForegroundWindow()
         except: return
@@ -1696,11 +1762,14 @@ class HeaderSwitch(QPushButton):
         p.end()
 
 class MainWindow(QMainWindow):
+    bar_toggle_sig=pyqtSignal()   # le raccourci clavier tourne dans le thread de la lib keyboard : on repasse par un signal
+
     def __init__(self):
         super().__init__()
         self.config=Config(); self.logic=DofusLogic(self.config)
         self.logic.app_hwnd=int(self.winId())  # pour sort_taskbar(return_focus=True)
         self.hk=HotkeyManager(self.config,self.logic)
+        self.hk.bar_toggle=self.bar_toggle_sig.emit; self.bar_toggle_sig.connect(self._toggle_bar)
         self._hk=False; self._spam=False
         self.mini=MiniToolbar(self.config,self.logic,self._show_self,on_navigate=self._navigate)
         self.setWindowTitle(f"{APP_NAME}  {VERSION}")
@@ -1805,7 +1874,7 @@ class MainWindow(QMainWindow):
         self.page_calibration.open_calibration.connect(self._open_calib_mode)
 
         self._navigate("mes_equipes")
-        self._update_tag=""; self._update_url=""; self._new_exe_path=None
+        self._update_tag=""; self._update_url=""; self._new_exe_path=None; self._update_notes=""; self._update_sha_url=""
         QTimer.singleShot(3000,self._check_update)
         # Scan automatique au lancement : sans ça, self.logic.all_accounts
         # est vide tant que l'utilisateur n'a pas cliqué "Scanner" une
@@ -1823,6 +1892,7 @@ class MainWindow(QMainWindow):
     def _on_update_checked(self,tag,url,size):
         if not tag: return
         self._update_tag=tag; self._update_url=url
+        self._update_notes=getattr(self._checker,"notes",""); self._update_sha_url=getattr(self._checker,"sha_url","")
         if can_self_update():
             self.version_btn.setText(f"{tag} disponible")
             self._paint_version_btn(GOLD)
@@ -1835,12 +1905,15 @@ class MainWindow(QMainWindow):
 
     def _start_update_download(self):
         if not self._update_url: return
+        notes=(self._update_notes or "").strip()
+        if notes and not ui_confirm(self,f"{self._update_tag} disponible",f"Quoi de neuf :\n\n{notes[:700]}",ok="Installer",cancel="Plus tard"):
+            return
         try: self.version_btn.clicked.disconnect()
         except Exception: pass
         self.version_btn.setText("Téléchargement… 0%")
         self._paint_version_btn(BLUE)
         dest=APP_DIR/"DofusTeam_new.exe"
-        self._downloader=UpdateDownloadThread(self._update_url,dest)
+        self._downloader=UpdateDownloadThread(self._update_url,dest,getattr(self,"_update_sha_url",""))
         self._downloader.progress.connect(lambda p: self.version_btn.setText(f"Téléchargement… {p}%"))
         self._downloader.done.connect(self._on_update_downloaded)
         self._downloader.start()
@@ -2116,6 +2189,10 @@ class MainWindow(QMainWindow):
             self.hk_btn.setOn(False)
 
     def _hide_to_mini(self): self.hide(); self.mini.show(); self.mini.raise_()
+    def _toggle_bar(self):
+        """Raccourci « Afficher la barre » : montre/cache la barre flottante sans toucher à la fenêtre principale."""
+        if self.mini.isVisible(): self.mini.hide()
+        else: self.mini.show(); self.mini.raise_()
     def _show_self(self): self.mini.hide(); self.show(); self.raise_(); self.activateWindow()
     def _toggle_vis(self):
         if self.isVisible(): self._hide_to_mini()
