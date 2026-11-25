@@ -28,7 +28,7 @@ from ui_kit import DtDialog, install_app_chrome, confirm as ui_confirm, info as 
 from updater import UpdateCheckThread, UpdateDownloadThread, can_self_update, apply_update_and_restart
 
 APP_NAME = "DofusTeam"
-VERSION  = "V3.16"
+VERSION  = "V3.17"
 
 CLASSES = ["Bellaphone","Cra","Ecaflip","Eliotrope","Eniripsa","Enutrof","Feca","Forgelance",
            "Huppermage","Iop","Osamodas","Ouginak","Pandawa","Roublard","Sacrieur",
@@ -1961,19 +1961,10 @@ class MainWindow(QMainWindow):
             self._notified_tag=tag; self._announce_update(tag)
 
     def _announce_update(self,tag):
-        """Notification en direct : pastille sur la barre flottante, bandeau dans la fenêtre principale si elle est
-        visible, et notification système (zone de notification Windows) si seule la barre est affichée — typiquement en jeu."""
+        """Annonce discrète : pastille orange sur l'œuf de la barre flottante (reste affichée jusqu'à l'installation) et,
+        si la fenêtre principale est ouverte, un bandeau de 15 s. Aucune notification système Windows."""
         self.mini.set_update(tag)
-        if self.isVisible():
-            self._show_update_toast(tag)
-        else:
-            try:
-                from PyQt6.QtWidgets import QSystemTrayIcon
-                if QSystemTrayIcon.isSystemTrayAvailable():
-                    tray=QSystemTrayIcon(QIcon(str(SKIN_DIR/"logo.png")),self); tray.show()
-                    tray.showMessage("DofusTeam",f"{tag} disponible — ouvre l'appli pour l'installer.",QSystemTrayIcon.MessageIcon.Information,8000)
-                    self._tray=tray; QTimer.singleShot(12000,tray.hide)
-            except Exception: pass
+        if self.isVisible(): self._show_update_toast(tag)
 
     def _show_update_toast(self,tag):
         old=getattr(self,"_update_toast",None)
